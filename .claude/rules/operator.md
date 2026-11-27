@@ -13,7 +13,9 @@ An operator script changes or inspects a machine that Claude Code never reaches.
 - **Never run one**, and never reach, probe, or configure the machine they are for. Reading and editing the script text is allowed.
 - **Dry run is the default.** The script has an apply mode that needs an explicit `--apply`; without it, it only reports what it would do.
 - **Release tags only.** An apply run refuses unless `HEAD` equals a release tag that is contained in the default branch
-  (`scripts/lib/operator_guard.py`). Never apply from a branch or an untagged commit.
+  (`scripts/lib/operator_guard.py`). Never apply from a branch or an untagged commit. By default the guard is offline and reads the
+  tag and the default branch from the local clone, so a tag made on the operator machine would pass; an apply run on a machine that
+  can reach the remote passes `--verify-remote <remote>` (or `verify_remote=`), which also requires the tag on the remote.
 - **Credentials are prompted for or short-lived**, kept inside the script process, never stored, never read from arguments or from
   the environment, never printed, and never passed to a child process on its command line.
 - **Fact collection is read-only, enforced in code**, not by a comment: no write call and no state-changing command on the read path.

@@ -72,7 +72,11 @@ and its endpoint list and was not copied; only the idea of a base-commit policy 
 `require_release(apply)` returns at once for a dry run. For an apply run it needs a clean work tree, a release tag
 `v<MAJOR>.<MINOR>.<PATCH>` at `HEAD` (annotated or lightweight), and `HEAD` contained in the default branch: the `default_branch`
 argument, else the target of `refs/remotes/origin/HEAD`, else the guard refuses. It runs local `git` commands with a literal argument
-list, creates no tag, and fetches nothing. Its test uses throwaway repositories, and the tests write tag refs as files because the gate
+list, creates no tag, and fetches nothing. **Limit of the offline default:** the tag and the default branch are read from the local clone, so a tag
+made on the machine that runs the script passes. The optional `--verify-remote REMOTE` (parameter `verify_remote`) also runs
+`git ls-remote --tags` and needs one of the release tags at `HEAD` on the remote at the same commit (an annotated tag by the commit it points
+at; a remote helper transport is refused). It is optional because it needs the remote to be reachable; `operator.md` tells an operator
+who can reach it to use it. The test uses a throwaway bare repository as the remote. Its test uses throwaway repositories, and the tests write tag refs as files because the gate
 forbids `git tag` in scripts.
 
 ## What the core deny list holds

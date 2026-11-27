@@ -10,7 +10,14 @@ An operator script calls `require_release(args.apply)` first. A dry run (`apply`
 
 The guard creates no tag and fetches nothing: the remote-tracking ref is as current as the last fetch of the person who runs it.
 
-Command line: operator_guard.py [--repo DIR] [--default-branch REF]   exit 0 and the tag name, or exit 1 and the reason.
+Limit of the default (offline) behaviour: the tag and the default branch are read from this clone, so a tag made on the machine that
+runs the script passes. The trust anchor of a release is the approver's tag on the remote. `verify_remote` (command line
+`--verify-remote REMOTE`, a remote name or URL) closes that gap: it also asks the remote with `git ls-remote --tags` and refuses
+unless the remote has one of the release tags at HEAD on the same commit. It needs the remote to be reachable, so it is optional and
+the operator rule says to use it for an apply run on a machine that can reach the remote.
+
+Command line: operator_guard.py [--repo DIR] [--default-branch REF] [--verify-remote REMOTE]
+exit 0 and the tag name, or exit 1 and the reason.
 """
 import os
 import re
@@ -23,6 +30,7 @@ RELEASE_TAG = re.compile(r"v(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9
 REF = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_./-]{0,200}")
 TIMEOUT = 30
 COMMIT = "^" + "{commit}"  # peel a ref to its commit
+PEEL = "^" + "{}"  # the peeled form of a tag in the list of a remote
 
 
 class GuardError(Exception):
@@ -39,7 +47,7 @@ def _git(repo, *args):
     return done.returncode, done.stdout
 
 
-def check_release(repo=".", default_branch=None):
+def check_release(repo=".", default_branch=None, verify_remote=None):
     """The release tag at HEAD. Raises GuardError when the apply run must be refused."""
     if not isinstance(repo, str) or not repo or repo.startswith("-"):
         raise GuardError("the repository path is not valid")
@@ -69,21 +77,39 @@ def check_release(repo=".", default_branch=None):
     code, _ = _git(repo, "merge-base", "--is-ancestor", "HEAD", ref)
     if code != 0:
         raise GuardError(f"the release tag {release[-1]} is not contained in the default branch")
+    if verify_remote is not None:
+        _verify_remote(repo, verify_remote, release)
     return release[-1]
 
 
-def require_release(apply, repo=".", default_branch=None):
+def _verify_remote(repo, remote, release):
+    """Require one of the release tags at HEAD on the remote, at the same commit."""
+    if not isinstance(remote, str) or not remote or remote.startswith("-") or "\n" in remote or "::" in remote:
+        raise GuardError("the remote is not valid")
+    code, head = _git(repo, "rev-parse", "--verify", "--quiet", "HEAD" + COMMIT)
+    if code != 0:
+        raise GuardError("not a git work tree with a commit at HEAD")
+    patterns = [f"refs/tags/{tag}" for tag in release] + [f"refs/tags/{tag}{PEEL}" for tag in release]
+    code, out = _git(repo, "-c", "protocol.ext.allow=never", "ls-remote", "--tags", "--", remote, *patterns)
+    if code != 0:
+        raise GuardError("the remote cannot be read: the tag was not verified")
+    # a lightweight tag lists the commit; an annotated tag lists the tag object and, peeled, the commit
+    if not any(line.split("\t")[0] == head.strip() for line in out.split("\n") if "\t" in line):
+        raise GuardError("the release tag is not found on the remote at HEAD")
+
+
+def require_release(apply, repo=".", default_branch=None, verify_remote=None):
     """Return when the run may go on. A dry run always may; an apply run needs `check_release` to pass, else SystemExit(1)."""
     if not apply:
         return None
     try:
-        return check_release(repo, default_branch)
+        return check_release(repo, default_branch, verify_remote)
     except GuardError as error:
         raise SystemExit(f"operator_guard: refused: {error}") from None
 
 
 def main(argv):
-    repo, default_branch = ".", None
+    repo, default_branch, verify_remote = ".", None, None
     args = list(argv)
     while args:
         flag = args.pop(0)
@@ -91,11 +117,13 @@ def main(argv):
             repo = args.pop(0)
         elif flag == "--default-branch" and args:
             default_branch = args.pop(0)
+        elif flag == "--verify-remote" and args:
+            verify_remote = args.pop(0)
         else:
-            print("usage: operator_guard.py [--repo DIR] [--default-branch REF]", file=sys.stderr)
+            print("usage: operator_guard.py [--repo DIR] [--default-branch REF] [--verify-remote REMOTE]", file=sys.stderr)
             return 2
     try:
-        print(check_release(repo, default_branch))
+        print(check_release(repo, default_branch, verify_remote))
     except GuardError as error:
         print(f"operator_guard: refused: {error}", file=sys.stderr)
         return 1

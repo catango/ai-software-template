@@ -811,7 +811,7 @@ guard() { # repo args...: sets OUT and RC
 }
 
 test_operator_guard() {
-  local repo side
+  local repo side first
   command -v git >/dev/null 2>&1 || {
     skip "operator_guard tests (tool not installed: git)"
     return
@@ -888,6 +888,46 @@ test_operator_guard() {
   rc_is "operator_guard: a directory that is not a work tree is refused" 1
   guard "-x"
   rc_is "operator_guard: a repository path that looks like an option is refused" 1
+
+  # --verify-remote: the tag must also exist on the remote, at the same commit (a throwaway bare repository, no network)
+  repo=$(guard_repo)
+  make_tag "$repo" v1.0.0
+  git clone -q --bare "$repo" "$WORK/remote-with-tag.git"
+  guard "$repo" --verify-remote "$WORK/remote-with-tag.git"
+  rc_is "operator_guard --verify-remote: a tag that the remote has at HEAD is allowed" 0
+  repo=$(guard_repo)
+  git clone -q --bare "$repo" "$WORK/remote-without-tag.git"
+  make_tag "$repo" v1.0.0
+  guard "$repo"
+  rc_is "operator_guard: without --verify-remote a tag that exists only locally is allowed (the documented limit)" 0
+  guard "$repo" --verify-remote "$WORK/remote-without-tag.git"
+  rc_is "operator_guard --verify-remote: a tag that only exists locally is refused" 1
+  out_has "operator_guard --verify-remote: the refusal says the remote lacks it" "not found on the remote"
+  repo=$(guard_repo)
+  first=$(git -C "$repo" rev-parse HEAD)
+  printf 'two\n' >"$repo/file"
+  commit_all "$repo" two
+  git -C "$repo" update-ref refs/remotes/origin/main HEAD
+  git clone -q --bare "$repo" "$WORK/remote-moved-tag.git"
+  mkdir -p "$WORK/remote-moved-tag.git/refs/tags"
+  printf '%s\n' "$first" >"$WORK/remote-moved-tag.git/refs/tags/v1.0.0"
+  make_tag "$repo" v1.0.0
+  guard "$repo" --verify-remote "$WORK/remote-moved-tag.git"
+  rc_is "operator_guard --verify-remote: a release tag that the remote has on another commit is refused" 1
+  repo=$(guard_repo)
+  make_tag "$repo" v2.0.0 annotated
+  git clone -q --bare "$repo" "$WORK/remote-annotated.git"
+  guard "$repo" --verify-remote "$WORK/remote-annotated.git"
+  rc_is "operator_guard --verify-remote: an annotated tag is compared by the commit it points at" 0
+  guard "$repo" --verify-remote "$WORK/no-such-remote.git"
+  rc_is "operator_guard --verify-remote: a remote that cannot be read is refused" 1
+  guard "$repo" --verify-remote 'ext::true'
+  rc_is "operator_guard --verify-remote: a remote helper transport is refused" 1
+  guard "$repo" --verify-remote '--x'
+  rc_is "operator_guard --verify-remote: a remote that looks like an option is refused" 1
+  RC=0
+  OUT=$(cd "$repo" && python3 -I -B -c 'import sys; sys.path.insert(0, sys.argv[1]); import operator_guard as g; print(g.require_release(True, verify_remote=sys.argv[2]))' "$ROOT/scripts/lib" "$WORK/remote-annotated.git" 2>&1) || RC=$?
+  rc_is "operator_guard.require_release: verify_remote is a parameter" 0
 
   # the library entry: a dry run is always allowed; an apply run is checked
   repo=$(guard_repo)
