@@ -6,7 +6,7 @@ import unittest
 
 import helpers
 from pr_contract import config
-from pr_contract.errors import ConfigError
+from pr_contract.errors import ConfigError, NearMissKey
 
 import template_config  # noqa: E402  (scripts/lib is on the path)
 
@@ -240,7 +240,8 @@ class AgainstTheWriter(unittest.TestCase):
     def test_a_filled_configuration_round_trips(self):
         loaded = self.configs()[0]
         loaded["workflow"] = {"design_repos": ["example-owner/design-records", "other-owner/x.y"],
-                              "operator_paths": ["ops/", "tools/run.yml", "roles/op_*/"], "docs_roots": ["docs/", "records/"]}
+                              "operator_paths": ["ops/", "tools/run.yml", "roles/op_*/"], "docs_roots": ["docs/", "records/"],
+                              "operator_commands": ["git", "tool-x.y"]}
         parsed = parse(template_config.project_yaml(loaded))
         self.assertEqual(parsed["workflow"], loaded["workflow"])
 
@@ -250,8 +251,9 @@ class AgainstTheWriter(unittest.TestCase):
         import itertools
         fields = {f["key"]: f for f in template_config.load_schema(helpers.ROOT / ".template" / "config.schema.toml")}
         alphabet = "a./*- +~_"
-        accepted = {"workflow.operator_paths": 0, "workflow.docs_roots": 0}
-        for key, reader in (("workflow.operator_paths", config.operator_paths), ("workflow.docs_roots", config.docs_roots)):
+        accepted = {"workflow.operator_paths": 0, "workflow.docs_roots": 0, "workflow.operator_commands": 0}
+        for key, reader in (("workflow.operator_paths", config.operator_paths), ("workflow.docs_roots", config.docs_roots),
+                            ("workflow.operator_commands", config.operator_commands)):
             spec = fields[key]
             name = key.split(".")[1]
             for length in range(1, 6):
@@ -266,6 +268,7 @@ class AgainstTheWriter(unittest.TestCase):
                     self.assertEqual(reader(parsed), (value,), value)
         self.assertGreater(accepted["workflow.operator_paths"], 50)
         self.assertGreater(accepted["workflow.docs_roots"], 5)
+        self.assertGreater(accepted["workflow.operator_commands"], 50)
 
     def test_the_wider_forms_that_the_reader_refuses_are_refused_by_the_schema(self):
         fields = {f["key"]: f for f in template_config.load_schema(helpers.ROOT / ".template" / "config.schema.toml")}
@@ -281,7 +284,7 @@ class AgainstTheWriter(unittest.TestCase):
     def test_every_valid_field_of_the_schema_round_trips_in_a_full_configuration(self):
         loaded = self.configs()[0]
         loaded["workflow"] = {"design_repos": ["a1-b/x.y", "Z/z_z-1"], "operator_paths": ["ops/", "a.yml", "roles/op_*/", "x/y-z/q.py"],
-                              "docs_roots": ["docs/", "template-dev/docs/", ".records/x/"]}
+                              "docs_roots": ["docs/", "template-dev/docs/", ".records/x/"], "operator_commands": ["a", "Z_9.x-y"]}
         loaded["architectures"] = [{"name": "a", "runner": "-x.y_z", "runner_private": ""},
                                    {"name": "x" * 20, "runner": "r" * 60, "runner_private": "r" * 60}]
         parsed = parse(template_config.project_yaml(loaded))
@@ -295,6 +298,20 @@ class AgainstTheWriter(unittest.TestCase):
         self.assertTrue(config.design_repos(parsed))
         self.assertTrue(config.architectures(parsed))
         self.assertEqual(config.operator_paths(parsed), ())
+        self.assertEqual(config.operator_commands(parsed), ())
+
+    def test_operator_commands_absent_is_empty_and_malformed_fails(self):
+        self.assertEqual(config.operator_commands(parse("workflow:\n  operator_paths: []\n")), ())
+        self.assertEqual(config.operator_commands(parse("workflow:\n  operator_commands:\n    - git\n    - 'ssh-keygen'\n")),
+                         ("git", "ssh-keygen"))
+        for text in ("workflow:\n  operator_commands:\n    - bin/git\n", "workflow:\n  operator_commands:\n    - git\n    - git\n",
+                     "workflow:\n  operator_commands:\n    - -x\n"):
+            with self.subTest(text=text), self.assertRaises(ConfigError):
+                config.operator_commands(parse(text))
+        with self.assertRaises(ConfigError):
+            config.operator_commands(None)
+        with self.assertRaises(NearMissKey):
+            parse("workflow:\n  operator_command:\n    - git\n")
 
     @unittest.skipUnless(shutil.which("yq"), "yq is not installed")
     def test_the_reader_agrees_with_yq_on_the_files_it_accepts(self):

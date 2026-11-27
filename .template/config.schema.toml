@@ -103,6 +103,15 @@ default = ["docs/"]
 description = "Directories that hold the change requests (<root>cr/) and the ADRs (<root>adr/), each ending in /. A design PR may change only paths under them; an implementation or change PR may not change the approved records in them."
 
 [[field]]
+key = "workflow.operator_commands"
+type = "string-list"
+kind = "relative-path"
+item_pattern = '^[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}$'
+max_length = 64
+default = []
+description = "Program names (no path) that operator scripts may start as a subprocess. The gate check operator-contract fails a subprocess of any other program, so an empty list allows none. Only the characters of the pattern: the check reads this list from config/project.yaml in a strict subset of YAML."
+
+[[field]]
 key = "architectures"
 type = "table-list"
 required = true
