@@ -1,7 +1,7 @@
 """The policy inputs that the pr-contract rules read from the configuration of the BASE commit.
 
 Only text of the base commit reaches this module: the clients fetch `config/project.yaml` at the base SHA and never the head.
-There is no YAML library and no process: `parse_yaml` is a strict reader of THREE keys, in the subset of YAML that
+There is no YAML library and no process: `parse_yaml` is a strict reader of FOUR keys, in the subset of YAML that
 `scripts/initialize-project` writes, and everything else in the file is not interpreted. Anything of those keys outside the
 subset raises ConfigError, so the rules that need them fail closed instead of guessing. The subset:
 
@@ -9,6 +9,7 @@ subset raises ConfigError, so the rules that need them fail closed instead of gu
       design_repos: []                # or a block list of strings (owner/name), the only two forms
       docs_roots:                     # the same two forms: directories ending in `/` that hold the records (PC-4, PC-5)
         - "docs/"
+      operator_commands: []           # program names (letters, digits, `.`, `_`, `-`) that operator scripts may start; the same two forms
       operator_paths:
         - "scripts/operator/"         # strings plain, "double" or 'single' quoted, of letters, digits, `.`, `_`, `-`, `/`, `@`
         - ansible/roles/operator_*/   # and `*` as the last two characters `*/` of a path; no escapes, no flow style
@@ -18,7 +19,7 @@ subset raises ConfigError, so the rules that need them fail closed instead of gu
         runner: "runner-a"            # of letters, digits, `.`, `_`, `-` only (no escapes); an omitted value is null
         runner_private: "runner-a"
 
-The three lists may appear in any order, each at most once. Comments, blank lines, and any other top-level key are skipped.
+The four lists may appear in any order, each at most once. Comments, blank lines, and any other top-level key are skipped.
 A key that looks like a misspelling of one of the keys read (within two edits, or the same ignoring case and hyphens: `docs_root`,
 `Design-Repos`, `workflows`) is an error that names it (`NearMissKey`), never an absent key: an absent `docs_roots` is the default, so
 a typo would silently drop a protection. Keys far from these are the project's own and are skipped.
@@ -60,8 +61,8 @@ _ITEM = re.compile(rf"(?P<indent> *)- +(?P<val>{_LIST_PLAIN}|{_LIST_QUOTED}){_CO
 _TOP_ARCH = re.compile(r"architectures:(?P<rest>(?: .*)?)")
 _TOP_WORKFLOW = re.compile(r"workflow:(?P<rest>(?: .*)?)")
 _ODD_TOP = re.compile(r"""(?:["'](?:architectures|workflow)|\? |<<|(?:architectures|workflow)(?![A-Za-z0-9_.-]))""")
-_CHILD_KEY = re.compile(r"(?P<key>design_repos|operator_paths|docs_roots):(?P<rest>(?: .*)?)")
-_ODD_CHILD = re.compile(r"""(?:["'](?:design_repos|operator_paths|docs_roots)|\? |<<|(?:design_repos|operator_paths|docs_roots)(?![A-Za-z0-9_.-]))""")
+_CHILD_KEY = re.compile(r"(?P<key>design_repos|operator_paths|docs_roots|operator_commands):(?P<rest>(?: .*)?)")
+_ODD_CHILD = re.compile(r"""(?:["'](?:design_repos|operator_paths|docs_roots|operator_commands)|\? |<<|(?:design_repos|operator_paths|docs_roots|operator_commands)(?![A-Za-z0-9_.-]))""")
 _EMPTY_LIST = re.compile(rf" +\[\]{_COMMENT}")
 _NOTHING = re.compile(_COMMENT)
 _FIRST = re.compile(rf"(?P<indent> *)-(?P<gap> +)(?P<key>[a-z_]+):(?: +(?P<val>{_VALUE}))?{_COMMENT}")
@@ -70,7 +71,7 @@ _NOT_A_STRING = re.compile(r"(?i)(?:true|false|null|~|yes|no|on|off|y|n)|[-+.]?[
 
 
 TOP_KEYS = ("architectures", "workflow")
-WORKFLOW_KEYS = ("design_repos", "operator_paths", "docs_roots")
+WORKFLOW_KEYS = ("design_repos", "operator_paths", "docs_roots", "operator_commands")
 _PLAIN_KEY = re.compile(r"(?P<key>[A-Za-z0-9_.-]+):(?: .*)?")
 MAX_DISTANCE = 2
 
@@ -330,6 +331,27 @@ def docs_roots(config):
                             all(part not in (".", "..") for part in r[:-1].split("/")) for r in roots):
         raise ConfigError("docs_roots entry is not valid")
     return roots
+
+
+_COMMAND = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}")
+
+
+def operator_commands(config):
+    """The programs that operator scripts may start, as a tuple. An absent key (in a configuration that was read) is the empty
+    tuple: no program is allowed. A missing file and anything malformed raise ConfigError."""
+    if config is None:
+        raise ConfigError("configuration is missing")
+    if not isinstance(config, dict):
+        raise ConfigError("configuration is not a mapping")
+    workflow = config.get("workflow", {})
+    if not isinstance(workflow, dict):
+        raise ConfigError("workflow is not a mapping")
+    if "operator_commands" not in workflow:
+        return ()
+    commands = _workflow_list(config, "operator_commands")
+    if not all(_COMMAND.fullmatch(c) for c in commands):
+        raise ConfigError("operator_commands entry is not valid")
+    return commands
 
 
 def is_operator_path(path, entries):

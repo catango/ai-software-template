@@ -15,7 +15,10 @@ github:
 #   docs_roots      directories that hold the change requests (<root>cr/) and the ADRs (<root>adr/). A design PR may change
 #                   only paths under them (PC-4); an implementation or change PR may not change the approved records in
 #                   them (PC-5). The template keeps its own records under template-dev/docs/.
-#   operator_paths  paths whose change needs the PR section "Operator script review" (rule PC-8). Empty: the rule is inactive.
+#   operator_paths  paths whose change needs the PR section "Operator script review" (rule PC-8) and whose scripts the gate check
+#                   operator-contract judges. Empty: both are inactive.
+#   operator_commands  program names (no path) that operator scripts may start as a subprocess; operator-contract fails any other.
+#                   Absent or empty: none is allowed.
 workflow:
   design_repos:
     - "catango/ai-lab-platform"
@@ -23,6 +26,7 @@ workflow:
     - "docs/"
     - "template-dev/docs/"
   operator_paths: []
+  operator_commands: []
 # Architectures of the CI matrix. Per architecture: `name`, `runner` (the runner label for a public repository) and
 # `runner_private` (for a private one). An empty label means that no runner exists for that repository: the job for that
 # architecture then writes "not run: <name>" instead of running the gate. Every name must be declared in

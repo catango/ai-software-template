@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "deny": [
+      "Bash(gh pr merge *)",
+      "Read(~/.ssh/**)",
+      "Bash(tool-x *)"
+    ]
+  }
+}

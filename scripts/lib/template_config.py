@@ -244,6 +244,7 @@ def project_yaml(config):
         "  design_repos:" + _yaml_list(config["workflow"]["design_repos"], 4),
         "  docs_roots:" + _yaml_list(config["workflow"]["docs_roots"], 4),
         "  operator_paths:" + _yaml_list(config["workflow"]["operator_paths"], 4),
+        "  operator_commands:" + _yaml_list(config["workflow"]["operator_commands"], 4),
         "architectures:\n",
     ]
     for arch in config["architectures"]:

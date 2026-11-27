@@ -23,3 +23,13 @@ plan_row = "3 (pr-contract)"
 # pr-contract.yml, and the tests of these files. The platform did not yet implement ADR-003 as amended, so the keys
 # design_repos and the nested configuration form, qualified references, the types template-sync and init (TC-1, TC-2) and the
 # classification by manifest are new here. What was changed on the way is in template-dev/docs/pr-contract.md.
+
+[[seed]]
+repository = "catango/ai-lab-platform"
+commit = "19b05d83a8b65464852c3ad97e19d47789e49682"
+plan_row = "4 (instructions)"
+# Taken: the shape of CLAUDE.md (sections, workflow summary, validation, context discipline), the generic deny entries of
+# .claude/settings.json, and the rule texts that were generic. The platform-specific parts (its hosts and infrastructure tools,
+# its operator paths and profile) were left out. operator-contract is a rewrite, not a copy: the origin's check is specific to its
+# own operator scripts, and the generic check, operator_guard.py, claude-md, and deny-list are new. What was changed on the way
+# is in template-dev/docs/instructions.md.

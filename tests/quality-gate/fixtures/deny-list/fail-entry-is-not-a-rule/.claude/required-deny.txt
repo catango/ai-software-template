@@ -1,0 +1,6 @@
+# core list
+Bash(gh pr merge *)
+
+Bash(git push --force*)
+Read(~/.ssh/**)
+not a rule!

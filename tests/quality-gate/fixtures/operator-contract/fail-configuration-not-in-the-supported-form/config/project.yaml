@@ -1,0 +1,6 @@
+schema_version: 1
+workflow:
+  design_repos: []
+  operator_paths: ["ops/"]
+  operator_commands:
+    - "git"
