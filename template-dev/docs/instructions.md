@@ -54,11 +54,12 @@ and its endpoint list and was not copied; only the idea of a base-commit policy 
 - **Policy from the base.** `quality-gate.sh --base` sets `GATE_BASE_REF`, and so will the base-run step of `pr-contract.yml` once the
   follow-up adds the check (point 7); the check reads `config/project.yaml` from that commit with the strict reader of
   `pr_contract.config` (the same reader PC-8 uses) and never from the head. `scripts/pr_contract/` must sit beside the checks.
-- **Python rules** (the syntax tree, nothing is run): no `shell=True`, `os.system`, `os.popen`, `os.exec*`, `os.spawn*`, `pty`, `eval`,
+- **Python rules** (the syntax tree, nothing is run): no `shell=True`, `executable=`, `os.system`, `os.popen`, `os.exec*`, `os.spawn*`, `pty`, `eval`,
   `exec`, or dynamic import; a subprocess needs a literal argument list whose program is a bare name listed in `operator_commands`;
-  no token read from the command line (an option or a variable named like a credential) or from the environment (a credential-like
+  no token read from the command line (an option or a variable named like a credential; `pat` and `auth` count as words of their own,
+  so `GH_PAT` and `AUTH_HEADER` match and `path` and `author` do not) or from the environment (a credential-like
   key, a key that is not a literal, or the whole environment); an entry point defines `--apply` as a `store_true` flag that is off by
-  default, so the dry run is the default. A file with no entry point (a library module) is not asked for `--apply`.
+  default, so the dry run is the default; `set_defaults(apply=...)` may only say False. A file with no entry point (a library module) is not asked for `--apply`.
 - A **shell script** under `operator_paths` is a finding: the rules cannot be checked in shell. Other files (data) are not judged.
 - **The allowlist.** The design says "a subprocess outside the configured allowlist" and names no key. ADR-009 decision 14 names the key
   `operator_endpoints`, but that is a list of hosts that an operator script may call, which is a different thing. This row adds the

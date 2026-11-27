@@ -8,7 +8,7 @@ Failing closed: a configuration that is missing, unreadable, or lacks `operator_
 `operator_paths` makes the check inactive.
 
 Rules for a Python file under `operator_paths` (the syntax tree; nothing is run):
-  - no `shell=True`, `os.system`, `os.popen`, `os.exec*`, `os.spawn*`, `pty`, `eval`, `exec`, or dynamic import;
+  - no `shell=True`, `executable=`, `os.system`, `os.popen`, `os.exec*`, `os.spawn*`, `pty`, `eval`, `exec`, or dynamic import;
   - a subprocess has a literal argument list whose program is listed in `operator_commands` (none is allowed by default);
   - no token read from the command line (an option or a variable named like a credential) or from the environment (a key named
     like a credential, a key that is not a literal, or the whole environment);
@@ -29,7 +29,9 @@ from pr_contract.errors import ConfigError  # noqa: E402
 
 CONFIG_PATH = "config/project.yaml"
 MAX_BYTES = 1_000_000
-SENSITIVE = re.compile(r"(?i)token|secret|passw|credential|api[_-]?key|private[_-]?key|\bpat\b|bearer")
+# Names that hold a credential. `pat` and `auth` count as words of their own (GH_PAT, AUTH_HEADER), not inside path or author.
+SENSITIVE = re.compile(r"(?i)token|secret|passw|credential|api[_-]?key|access[_-]?key|private[_-]?key|bearer|oauth|authorization"
+                       r"|(?<![a-z])(?:pat|auth)(?![a-z])")
 SUBPROCESS_CALLS = frozenset({"run", "call", "check_call", "check_output", "Popen"})
 SUBPROCESS_SHELL_CALLS = frozenset({"getoutput", "getstatusoutput"})
 ENV_NAMES = ("os.environ", "os.environb")
@@ -89,6 +91,12 @@ class Scanner(ast.NodeVisitor):
                 value = keyword.value
                 if isinstance(value, ast.Constant) and value.value is True:
                     self.add(node, "shell=True is not allowed")
+            elif keyword.arg == "executable":
+                self.add(node, "executable= is not allowed: it starts a program other than the one that is checked")
+        if isinstance(node.func, ast.Attribute) and node.func.attr == "set_defaults":
+            for keyword in node.keywords:
+                if keyword.arg == "apply" and not (isinstance(keyword.value, ast.Constant) and keyword.value.value in (False, None)):
+                    self.add(node, "set_defaults must not turn --apply on: the dry run is the default")
         if name in ("eval", "exec", "builtins.eval", "builtins.exec"):
             self.add(node, f"{name.split('.')[-1]} is not allowed")
         elif name in DYNAMIC_IMPORTS:
