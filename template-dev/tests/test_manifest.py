@@ -8,8 +8,10 @@ the `leak` test).
 """
 
 import ast
+import importlib.machinery
 import re
 import tomllib
+import types
 import unittest
 from pathlib import Path
 
@@ -348,6 +350,8 @@ class GenerationTests(TempDirTestCase):
             "non-positive id": good.replace("approver_id = 1000001", "approver_id = 0"),
             "bad enum": good.replace('visibility = "public"', 'visibility = "internal"'),
             "bad repository form": good.replace('"example-owner/software-template"', '"software-template"'),
+            "dot repository name": good.replace('"example-owner/software-template"', '"example-owner/.."'),
+            "dot design repository": good.replace("design_repos = []", 'design_repos = ["example-owner/."]'),
             "bad schema version": good.replace("schema_version = 1", "schema_version = 9"),
             "no architecture": good.split("[[architectures]]")[0],
             "duplicate architecture": good + '\n[[architectures]]\nname = "arch-a"\nrunner = ""\nrunner_private = ""\n',
@@ -369,6 +373,18 @@ class GenerationTests(TempDirTestCase):
                 result = helpers.run_init(tree, cfg)
                 self.assertEqual(result.returncode, 2, (name, result.stdout, result.stderr))
                 self.assertEqual(helpers.snapshot(tree), before)
+
+    def test_a_section_that_is_not_a_table_is_named_as_such(self):
+        good = helpers.NEUTRAL.read_text()
+        text = good.replace('[template]\nsource = "example-owner/software-template"\n\n', "")
+        text = text.replace("schema_version = 1\n", 'schema_version = 1\ntemplate = "x"\n', 1)
+        tree = helpers.export_template(self.make_dir() / "tree")
+        cfg = self.make_dir() / "bad.toml"
+        cfg.write_text(text)
+        result = helpers.run_init(tree, cfg)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("template: must be a table", result.stderr)
+        self.assertNotIn("template: unknown key", result.stderr)
 
     def test_missing_config_or_root_is_refused(self):
         tree = helpers.export_template(self.make_dir() / "tree")
@@ -431,6 +447,24 @@ class GenerationTests(TempDirTestCase):
                     self.assertIsNone(
                         re.search(r"\bgh (api|repo|label|pr|ruleset|secret|variable)\b", node.value),
                         f"{rel} names a GitHub client command")
+
+    def test_safe_write_creates_nothing_outside_the_root(self):
+        loader = importlib.machinery.SourceFileLoader(
+            "initialize_project_under_test", str(ROOT / "scripts" / "initialize-project"))
+        module = types.ModuleType(loader.name)
+        module.__file__ = loader.path
+        loader.exec_module(module)
+        base = self.make_dir()
+        root, outside = base / "root", base / "outside"
+        root.mkdir()
+        outside.mkdir()
+        (root / "docs").symlink_to(outside, target_is_directory=True)
+        with self.assertRaises(OSError):
+            module.safe_write(root.resolve(), "docs/sub/x.md", b"x")
+        self.assertEqual(list(outside.iterdir()), [])
+        # an ordinary nested path is written
+        module.safe_write(root.resolve(), "ok/sub/x.md", b"x")
+        self.assertEqual((root / "ok" / "sub" / "x.md").read_bytes(), b"x")
 
     def test_initialize_project_only_writes_inside_the_root(self):
         tree, result = self.generate("second")

@@ -73,14 +73,14 @@ description = "Visibility of the generated repository. Decides which rulesets ar
 key = "template.source"
 type = "string"
 required = true
-pattern = '^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})/[A-Za-z0-9._-]{1,100}$'
+pattern = '^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})/(?!\.{1,2}$)[A-Za-z0-9._-]{1,100}$'
 description = "Template source repository as owner/name. template-sync reads tags from it."
 
 [[field]]
 key = "workflow.design_repos"
 type = "string-list"
 required = true
-item_pattern = '^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})/[A-Za-z0-9._-]{1,100}$'
+item_pattern = '^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})/(?!\.{1,2}$)[A-Za-z0-9._-]{1,100}$'
 description = "Repositories (owner/name) whose merged design pull requests an implementation may reference. May be empty."
 
 [[field]]

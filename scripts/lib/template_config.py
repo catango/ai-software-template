@@ -122,8 +122,11 @@ def _unknown_keys(config, fields):
             path = prefix + key
             if path in wanted:
                 continue
-            if any(w.startswith(path + ".") for w in wanted) and isinstance(value, dict):
-                walk(value, path + ".")
+            if any(w.startswith(path + ".") for w in wanted):
+                if isinstance(value, dict):
+                    walk(value, path + ".")
+                else:
+                    errors.append(f"{path}: must be a table")
             else:
                 errors.append(f"{path}: unknown key")
 

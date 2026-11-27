@@ -146,6 +146,13 @@ def safe_write(root, rel, data):
     """Write `data` to root/rel. Replaces a file or a symbolic link; stays inside root."""
     target = root / rel
     parent = target.parent
+    # Check the nearest existing ancestor before creating anything: a link in the path
+    # must not make mkdir create directories outside the repository.
+    ancestor = parent
+    while not ancestor.exists() and not ancestor.is_symlink():
+        ancestor = ancestor.parent
+    if not ancestor.resolve().is_relative_to(root):
+        raise OSError(f"{rel}: parent directory leaves the repository")
     parent.mkdir(parents=True, exist_ok=True)
     if not parent.resolve().is_relative_to(root):
         raise OSError(f"{rel}: parent directory leaves the repository")

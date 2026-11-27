@@ -55,6 +55,10 @@ from fragments at run time, so no identifier-shaped value is committed.
 - A seeded file that the copy already has (`README.md`, `docs/README.md`, `config/project.yaml`,
   `docs/PLATFORM.md`, `.claude/deny.platform.txt`) is overwritten from the configuration.
   Without preset files, `docs/PLATFORM.md` gets a neutral text and `deny.platform.txt` is empty.
+- The walk skips `.git` and `__pycache__`, and the script disables bytecode writing, so a
+  direct run leaves no bytecode in the repository. A symbolic link to a directory counts as a
+  path: removed when `template-only`, refused when kept. Writes never create directories
+  outside the root.
 - It prints the configured post-init actions, then the rulesets for a public repository or a
   note for a private one. It imports only local-file modules and starts no process; the
   `manifest` test checks that on the syntax tree.
