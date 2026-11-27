@@ -1,0 +1,126 @@
+# Patterns of the `leak` test (T-15 identifiers, T-21 platform references).
+#
+# group  "identifier"  T-15: tenancy or resource OCIDs, addresses, emails, keys, fingerprints, tokens
+#        "platform"    T-21: a reference to the platform the template is decoupled from
+#        "arch"        T-21: a fixed architecture or runner label
+#        "placeholder" T-2:  a placeholder that initialize-project should have filled
+# scope  "both"        payload (every file not classed template-only) and generated tree
+#        "generated"   generated tree only
+# ci     match case-insensitively
+#
+# Findings report the pattern name and the location, never the matched text.
+# Patterns that name the platform are written generically so that this file does not
+# contain the names it forbids.
+
+[[pattern]]
+name = "ocid"
+group = "identifier"
+scope = "both"
+regex = '\bocid1\.[a-z0-9_-]+\.'
+
+[[pattern]]
+name = "ipv4"
+group = "identifier"
+scope = "both"
+regex = '(?<![\d.])(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)(?![\d.])'
+
+[[pattern]]
+name = "ipv6"
+group = "identifier"
+scope = "both"
+regex = '(?<![0-9A-Za-z:])(?:[0-9A-Fa-f]{1,4}:){4,7}[0-9A-Fa-f]{1,4}(?![0-9A-Za-z:])'
+
+[[pattern]]
+name = "email"
+group = "identifier"
+scope = "both"
+regex = '[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}'
+
+[[pattern]]
+name = "private-key"
+group = "identifier"
+scope = "both"
+regex = '-----BEGIN [A-Z0-9 ]*PRIVATE KEY'
+
+[[pattern]]
+name = "ssh-public-key"
+group = "identifier"
+scope = "both"
+regex = '\b(?:ssh-(?:rsa|ed25519|dss)|ecdsa-sha2-nistp\d+) AAAA[0-9A-Za-z+/]{20,}'
+
+[[pattern]]
+name = "fingerprint"
+group = "identifier"
+scope = "both"
+regex = '\b(?:[0-9A-Fa-f]{2}:){15,31}[0-9A-Fa-f]{2}\b|\bSHA256:[A-Za-z0-9+/]{43}\b'
+
+[[pattern]]
+name = "github-token"
+group = "identifier"
+scope = "both"
+regex = '\b(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{20,})'
+
+[[pattern]]
+name = "cloud-or-chat-token"
+group = "identifier"
+scope = "both"
+regex = '\b(?:AKIA[0-9A-Z]{16}|xox[abprs]-[0-9A-Za-z-]{10,}|sk-[A-Za-z0-9_-]{32,})'
+
+[[pattern]]
+name = "credential-assignment"
+group = "identifier"
+scope = "both"
+ci = true
+regex = '''\b(?:token|secret|password|passwd|api[_-]?key)\b["']?\s*[:=]\s*["']?[A-Za-z0-9/+_.-]{20,}'''
+
+[[pattern]]
+name = "platform-repository-name"
+group = "platform"
+scope = "both"
+ci = true
+regex = '\bai-lab-[a-z]+'
+
+[[pattern]]
+name = "platform-record-number"
+group = "platform"
+scope = "both"
+regex = '\b(?:CR|ADR)-\d+\b'
+
+[[pattern]]
+name = "oci"
+group = "platform"
+scope = "both"
+regex = '\bOCI\b|oraclecloud|\bocid\b'
+
+[[pattern]]
+name = "platform-host"
+group = "platform"
+scope = "both"
+ci = true
+regex = '\blab[ -]vm\b|\blabctl\b|(?<![\w.])/srv/work\b'
+
+[[pattern]]
+name = "fixed-architecture"
+group = "arch"
+scope = "both"
+ci = true
+regex = '\b(?:amd64|arm64|aarch64|x86[_-]64)\b'
+
+[[pattern]]
+name = "fixed-runner-label"
+group = "arch"
+scope = "both"
+ci = true
+regex = '\bubuntu-\d{2}\.\d{2}(?:-arm)?\b'
+
+[[pattern]]
+name = "token-placeholder"
+group = "placeholder"
+scope = "generated"
+regex = '@@[A-Z][A-Z0-9_]*@@'
+
+[[pattern]]
+name = "brace-placeholder"
+group = "placeholder"
+scope = "generated"
+regex = '(?<!\$)\{\{[^}\n]*\}\}'

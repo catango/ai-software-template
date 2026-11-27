@@ -1,0 +1,2 @@
+Bash(example-cli delete *)
+Bash(example-cli apply *)

@@ -1,0 +1,40 @@
+# Second configuration, different from neutral.toml in every optional part:
+# two architectures (one without a private runner), private visibility, operator paths,
+# a design repository, preset files, and post-init actions.
+schema_version = 1
+
+[project]
+name = "other-service"
+
+[github]
+owner = "example-org"
+approver_login = "example-lead"
+approver_id = 2000002
+machine_login = "example-agent"
+visibility = "private"
+
+[template]
+source = "example-org/starter-template"
+
+[workflow]
+design_repos = ["example-org/design-records"]
+operator_paths = ["ops/scripts/", "ops/profile.yml"]
+
+[[architectures]]
+name = "arch-a"
+runner = "runner-a"
+runner_private = "runner-a"
+
+[[architectures]]
+name = "arch-b"
+runner = "runner-b"
+runner_private = ""
+
+[preset]
+platform_doc = "PLATFORM.md"
+deny_platform = "deny.platform.txt"
+
+post_init_actions = [
+  "Add the machine account as a collaborator.",
+  "Apply the printed rulesets before the init pull request merges.",
+]
