@@ -1,0 +1,17 @@
+#!/usr/bin/env python3
+"""Context of a change request for a Skill. See scripts/lib/cr_tools/context.py for the modes and options.
+
+    scripts/cr-context ISSUE | preflight ISSUE DESIGN_PR | label ISSUE --confirmed-class N   [--repo owner/name] [--fixture DIR]
+"""
+import os
+import sys
+
+sys.dont_write_bytecode = True
+here = os.path.dirname(os.path.realpath(__file__))
+sys.path.insert(0, here)
+sys.path.insert(0, os.path.join(here, "lib"))
+
+from cr_tools import context  # noqa: E402
+
+if __name__ == "__main__":
+    sys.exit(context.main(sys.argv[1:]))

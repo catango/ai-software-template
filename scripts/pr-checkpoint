@@ -1,0 +1,17 @@
+#!/usr/bin/env python3
+"""The checkpoint list of a pull request body. See scripts/lib/cr_tools/checkpoint.py.
+
+    scripts/pr-checkpoint show [PR] | tick ITEM [PR] [--dry-run] | ready [PR] [--dry-run]   [--repo owner/name] [--fixture DIR]
+"""
+import os
+import sys
+
+sys.dont_write_bytecode = True
+here = os.path.dirname(os.path.realpath(__file__))
+sys.path.insert(0, here)
+sys.path.insert(0, os.path.join(here, "lib"))
+
+from cr_tools import checkpoint  # noqa: E402
+
+if __name__ == "__main__":
+    sys.exit(checkpoint.main())
