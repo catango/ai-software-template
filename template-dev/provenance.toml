@@ -11,4 +11,6 @@ schema_version = 1
 repository = "catango/ai-lab-platform"
 commit = "19b05d83a8b65464852c3ad97e19d47789e49682"
 plan_row = "2 (gate)"
-# What was taken and how it was changed is in template-dev/docs/gate.md.
+# Taken: scripts/quality-gate.sh, scripts/lib/gate-lib.sh, the generic checks of scripts/checks/, the install engine
+# (toolchain/toolchain_engine/), the hash-locked requirements of the CI manifest, and the fixtures of the generic checks.
+# What was changed on the way is in template-dev/docs/gate.md.
