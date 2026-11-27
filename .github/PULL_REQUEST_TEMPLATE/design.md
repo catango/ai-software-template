@@ -1,5 +1,5 @@
 <!-- PR type: design. Branch: design/CR-<n>-<slug>. Rule PC-1 requires every section below, non-empty. -->
-<!-- A design PR may change only paths under docs/ (PC-4). -->
+<!-- A design PR may change only paths under the record roots of config/project.yaml, key `docs_roots`, default docs/ (PC-4). -->
 
 ## Summary
 <!-- What this design decides, in 2-3 sentences. -->

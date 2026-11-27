@@ -19,3 +19,7 @@ class LimitExceeded(Exception):
 
 class ConfigError(Exception):
     """The configuration of the base commit cannot be read as one YAML mapping, or a key has the wrong shape."""
+
+
+class NotReadable(NotFound):
+    """The API refused the read (401 or 403): the resource may exist. Unlike a plain NotFound it never means "absent"."""

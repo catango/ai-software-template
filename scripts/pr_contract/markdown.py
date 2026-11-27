@@ -36,9 +36,22 @@ class Parsed:
     design: Optional[Ref] = None
 
 
+_MARKERS = re.compile(r"(?:>|[-*+]|[0-9]{1,9}[.)]|\[[ xX]\])(?:[ \t]+|$)")
+
+
 def has_content(text):
-    """True when the text holds at least one letter, number, punctuation, or symbol."""
-    return any(unicodedata.category(ch)[0] in "LNPS" for ch in text)
+    """True when the text holds at least one letter or digit outside the list, quote, and checkbox markers that start its lines.
+    Punctuation and symbols alone, and an empty list or checklist, are not content."""
+    for line in text.split("\n"):
+        line = line.lstrip(" \t")
+        while True:
+            match = _MARKERS.match(line)
+            if not match:
+                break
+            line = line[match.end():]
+        if any(unicodedata.category(ch)[0] in "LN" for ch in line):
+            return True
+    return False
 
 
 def _ref(match):

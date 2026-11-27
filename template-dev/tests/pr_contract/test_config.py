@@ -194,7 +194,7 @@ class AgainstTheWriter(unittest.TestCase):
     def test_a_filled_configuration_round_trips(self):
         loaded = self.configs()[0]
         loaded["workflow"] = {"design_repos": ["example-owner/design-records", "other-owner/x.y"],
-                              "operator_paths": ["ops/", "tools/run.yml", "roles/op_*/"]}
+                              "operator_paths": ["ops/", "tools/run.yml", "roles/op_*/"], "docs_roots": ["docs/", "records/"]}
         parsed = parse(template_config.project_yaml(loaded))
         self.assertEqual(parsed["workflow"], loaded["workflow"])
 

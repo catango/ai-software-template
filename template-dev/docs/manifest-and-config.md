@@ -35,6 +35,10 @@ decision of the design.
 - `initialize-project` writes `config/project.yaml` from the validated configuration.
   Generation-only keys (`visibility`, the preset file paths, `post_init_actions`) are not copied into it.
 
+- `workflow.docs_roots` (optional, default `["docs/"]`) names the directories that hold the CR and ADR records. The paths of
+  `workflow.operator_paths` and `workflow.docs_roots` have the narrow form that `pr-contract` can read from `config/project.yaml`
+  (see `template-dev/docs/pr-contract.md`); the schema refuses anything wider.
+
 ## Tests
 
 `template-dev/run-tests.sh [manifest|leak|all]` runs the standard-library tests. The leak

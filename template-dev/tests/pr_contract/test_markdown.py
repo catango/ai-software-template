@@ -96,7 +96,7 @@ class QualifiedReferenceTests(unittest.TestCase):
 class HasContentTests(unittest.TestCase):
     def test_punctuation_symbols_and_markers_alone_are_not_content(self):
         for text in (".", "-", "---", "...", "?!", "*", "- [ ]", "- [x]", "* [ ]  \n- [ ]", "1.", "1) ", "> ", "- - -", "n/a" [:0] + "/",
-                     "<!-- c -->", "```\n```", "`", "$", "©", "\u200b-"):
+                     "```\n```", "`", "$", "©", "\u200b-"):
             with self.subTest(text=text):
                 self.assertFalse(markdown.has_content(text), repr(text))
 

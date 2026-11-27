@@ -21,11 +21,15 @@ BRANCHES = (
     (re.compile(rf"template-sync/{_VERSION}"), "template-sync"),
     (re.compile(rf"init/{_VERSION}"), "init"),
 )
-PROTECTED = re.compile(r"docs/cr/[^/]+/(design|acceptance-criteria)\.md")
+# Approved records under a record root (`workflow.docs_roots`): a CR's design and acceptance criteria, and every ADR. The owned
+# templates (`cr/_template/`, `adr/_template.md`) are files of the template, not records.
+RECORD = re.compile(r"cr/(?!_template/)[^/]+/(design|acceptance-criteria)\.md")
+ADR_TEMPLATE = "adr/_template.md"
 WORKFLOW_PREFIXES = (".github/workflows/", ".github/actions/")
 JUSTIFICATION = "Workflow change justification"
 OPERATOR_REVIEW = "Operator script review"
 OPERATOR_KEY_MESSAGE = "operator_paths missing or invalid in the base configuration"
+DOCS_ROOTS_MESSAGE = "docs_roots missing or invalid in the base configuration"
 DESIGN_REPOS_MESSAGE = "design_repos missing or invalid in the base configuration"
 
 MANIFEST_NAMES = frozenset({
@@ -135,6 +139,19 @@ def touched(files):
             yield item.previous
 
 
+def under_roots(path, roots):
+    return any(path.startswith(root) for root in roots)
+
+
+def is_approved_record(path, roots):
+    for root in roots:
+        if path.startswith(root):
+            rest = path[len(root):]
+            if RECORD.fullmatch(rest) or (rest.startswith("adr/") and rest != ADR_TEMPLATE):
+                return True
+    return False
+
+
 def capped(rule, template, paths):
     out = [Violation(rule, template.format(clean(path))) for path in paths[:PATH_CAP]]
     if len(paths) > PATH_CAP:
@@ -184,11 +201,17 @@ def evaluate(pr, client, templates_dir):
             violations.extend(check_evidence(pr, parsed, client, base))
 
     if files is not None:
-        if kind == "design":
-            violations.extend(capped("PC-4", "path outside docs/: {}", [p for p in touched(files) if not p.startswith("docs/")]))
-        if kind in ("implementation", "change"):
-            protected = [p for p in touched(files) if PROTECTED.fullmatch(p) or p.startswith("docs/adr/")]
-            violations.extend(capped("PC-5", "approved file changed: {}", protected))
+        if kind in ("design", "implementation", "change"):
+            rule = "PC-4" if kind == "design" else "PC-5"
+            try:
+                roots = config.docs_roots(base.get())
+            except ConfigError:
+                violations.append(Violation(rule, DOCS_ROOTS_MESSAGE))
+            else:
+                if kind == "design":
+                    violations.extend(capped("PC-4", "path outside the record roots: {}", [p for p in touched(files) if not under_roots(p, roots)]))
+                else:
+                    violations.extend(capped("PC-5", "approved file changed: {}", [p for p in touched(files) if is_approved_record(p, roots)]))
         if any(p.startswith(WORKFLOW_PREFIXES) for p in touched(files)):
             justification = parsed.sections.get(JUSTIFICATION, "") if parsed is not None else ""
             if not markdown.has_content(justification):
@@ -369,8 +392,18 @@ def allowed_manifest(path):
     return path in MANIFEST_PATHS or name in MANIFEST_NAMES or bool(_REQUIREMENTS.fullmatch(name))
 
 
+_USES_NAME = re.compile(r"\s*(?:-\s+)?uses:\s+(\S+)")
+
+
+def uses_name(line):
+    """The action of a `uses:` line: the reference up to the `@` (a bump changes what follows it, never this)."""
+    return _USES_NAME.match(line).group(1).split("@", 1)[0]
+
+
 def uses_only_patch(patch):
-    changed = 0
+    """True when every changed line is a `uses:` line and the removed and added lines name the same actions in the same order:
+    a bump of a pin, never a different action, a new one, or a removed one."""
+    removed, added = [], []
     for line in patch.split("\n"):
         if len(line) > MAX_PATCH_LINE:
             return False
@@ -378,8 +411,8 @@ def uses_only_patch(patch):
             continue
         if line[0] not in "+-" or not _USES_LINE.fullmatch(line[1:]):
             return False
-        changed += 1
-    return changed > 0
+        (removed if line[0] == "-" else added).append(uses_name(line[1:]))
+    return bool(removed) and removed == added
 
 
 def check_dependabot(files):
