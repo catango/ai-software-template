@@ -122,12 +122,21 @@ def check_paths(manifest, paths):
     return {"unclassed": unclassed, "multiple": multiple}
 
 
+SKIPPED_DIRS = (".git", "__pycache__")
+
+
 def walk_files(root):
-    """Sorted repository-relative paths of every file below root, without `.git`."""
+    """Sorted repository-relative paths of every file below root.
+
+    `.git` and `__pycache__` are skipped. A symbolic link to a directory is reported as a
+    path of its own (it is not followed), so that it is classified like any file.
+    """
     found = []
     for base, dirs, files in os.walk(root):
-        dirs[:] = [d for d in dirs if d != ".git"]
-        for name in files:
+        dirs[:] = [d for d in dirs if d not in SKIPPED_DIRS]
+        names = list(files)
+        names += [d for d in dirs if os.path.islink(os.path.join(base, d))]
+        for name in names:
             full = os.path.join(base, name)
             found.append(os.path.relpath(full, root).replace(os.sep, "/"))
     return sorted(found)

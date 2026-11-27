@@ -89,6 +89,15 @@ class PatternTests(TempDirTestCase):
                "Versions 1.2.3 and 10.20.30.40.50 are not addresses; arch-a is a neutral name."
         self.assertEqual(self.scan_text(text, scope="generated"), [])
 
+    def test_ipv6_needs_eight_groups_or_a_compressed_form(self):
+        compressed = "addr " + "2001:db8" + "::" + "1"
+        self.assertIn("ipv6", [f.pattern for f in self.scan_text(compressed)])
+        for text in ("mac " + ":".join(["de", "ad", "be", "ef", "00", "01"]),
+                     "list 12:30:45:10:20:30", "at 12:30:45 and 08:15:00",
+                     "path a::b is not an address"):
+            with self.subTest(text=text):
+                self.assertEqual(self.scan_text(text), [])
+
     def test_placeholder_patterns_apply_to_generated_trees_only(self):
         sample = SAMPLES["token-placeholder"]
         self.assertEqual(self.scan_text(sample, scope="both"), [])

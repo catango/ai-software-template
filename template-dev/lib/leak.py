@@ -72,6 +72,8 @@ def scan(root, paths, patterns, scope, arch_exempt=frozenset()):
     active = [p for p in patterns if scope == "generated" or p.scope == "both"]
     findings = []
     for rel in paths:
+        if not (Path(root) / rel).is_file():
+            continue
         raw = (Path(root) / rel).read_bytes()
         if b"\0" in raw:
             continue

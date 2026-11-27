@@ -8,8 +8,10 @@ the `leak` test).
 """
 
 import ast
+import importlib.machinery
 import re
 import tomllib
+import types
 import unittest
 from pathlib import Path
 
@@ -151,9 +153,20 @@ class ManifestFormatTests(unittest.TestCase):
                 regex = tm.compile_pattern(pattern)
                 self.assertEqual(bool(regex.fullmatch(path)), expected)
 
-    def test_walk_files_skips_git_directory(self):
-        # covered with a real directory in GenerationTests; here only the contract
-        self.assertTrue(callable(tm.walk_files))
+
+
+class WalkFilesTests(TempDirTestCase):
+    def test_skips_git_and_bytecode_directories_and_reports_directory_links(self):
+        root = self.make_dir()
+        write_tree(root, {
+            ".git/config": "x", "keep.txt": "x", "a/b.txt": "x",
+            "__pycache__/top.pyc": "x", "a/__pycache__/inner.pyc": "x",
+        })
+        (root / "link").symlink_to(root / "a", target_is_directory=True)
+        (root / "filelink").symlink_to(root / "keep.txt")
+        self.assertEqual(
+            tm.walk_files(root), ["a/b.txt", "filelink", "keep.txt", "link"]
+        )
 
 
 class GenerationTests(TempDirTestCase):
@@ -268,6 +281,32 @@ class GenerationTests(TempDirTestCase):
             self.assertEqual(digest, snap[rel], rel)
         self.assertEqual(state["overrides"], {})
 
+    def test_run_without_the_bytecode_flag_leaves_no_bytecode_and_none_in_state(self):
+        # A user runs the script directly; the tests otherwise always pass -B.
+        tree, result = self.generate("neutral", bytecode=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(list(tree.rglob("__pycache__")), [])
+        self.assertEqual(list(tree.rglob("*.pyc")), [])
+        state = tomllib.loads((tree / ".template" / "state.toml").read_text())
+        self.assertFalse([p for p in state["owned"] if "pycache" in p or p.endswith(".pyc")])
+
+    def test_a_template_only_symbolic_link_to_a_directory_is_removed(self):
+        tree = helpers.export_template(self.make_dir() / "tree")
+        (tree / "template-dev" / "linkdir").symlink_to(tree / ".template", target_is_directory=True)
+        result = helpers.run_init(tree, helpers.NEUTRAL)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse((tree / "template-dev").exists())
+        self.assertTrue((tree / ".template" / "manifest.toml").is_file())
+
+    def test_a_kept_symbolic_link_to_a_directory_is_refused_and_nothing_changes(self):
+        tree = helpers.export_template(self.make_dir() / "tree")
+        (tree / "scripts" / "lib" / "linkdir").symlink_to(tree / ".template", target_is_directory=True)
+        before = helpers.snapshot(tree)
+        result = helpers.run_init(tree, helpers.NEUTRAL)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("scripts/lib/linkdir", result.stderr)
+        self.assertEqual(helpers.snapshot(tree), before)
+
     def test_template_commit_is_recorded_only_when_given_and_valid(self):
         tree = helpers.export_template(self.make_dir() / "tree")
         result = helpers.run_init(tree, helpers.NEUTRAL, "--template-commit", "not-a-sha")
@@ -311,6 +350,8 @@ class GenerationTests(TempDirTestCase):
             "non-positive id": good.replace("approver_id = 1000001", "approver_id = 0"),
             "bad enum": good.replace('visibility = "public"', 'visibility = "internal"'),
             "bad repository form": good.replace('"example-owner/software-template"', '"software-template"'),
+            "dot repository name": good.replace('"example-owner/software-template"', '"example-owner/.."'),
+            "dot design repository": good.replace("design_repos = []", 'design_repos = ["example-owner/."]'),
             "bad schema version": good.replace("schema_version = 1", "schema_version = 9"),
             "no architecture": good.split("[[architectures]]")[0],
             "duplicate architecture": good + '\n[[architectures]]\nname = "arch-a"\nrunner = ""\nrunner_private = ""\n',
@@ -332,6 +373,18 @@ class GenerationTests(TempDirTestCase):
                 result = helpers.run_init(tree, cfg)
                 self.assertEqual(result.returncode, 2, (name, result.stdout, result.stderr))
                 self.assertEqual(helpers.snapshot(tree), before)
+
+    def test_a_section_that_is_not_a_table_is_named_as_such(self):
+        good = helpers.NEUTRAL.read_text()
+        text = good.replace('[template]\nsource = "example-owner/software-template"\n\n', "")
+        text = text.replace("schema_version = 1\n", 'schema_version = 1\ntemplate = "x"\n', 1)
+        tree = helpers.export_template(self.make_dir() / "tree")
+        cfg = self.make_dir() / "bad.toml"
+        cfg.write_text(text)
+        result = helpers.run_init(tree, cfg)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("template: must be a table", result.stderr)
+        self.assertNotIn("template: unknown key", result.stderr)
 
     def test_missing_config_or_root_is_refused(self):
         tree = helpers.export_template(self.make_dir() / "tree")
@@ -394,6 +447,24 @@ class GenerationTests(TempDirTestCase):
                     self.assertIsNone(
                         re.search(r"\bgh (api|repo|label|pr|ruleset|secret|variable)\b", node.value),
                         f"{rel} names a GitHub client command")
+
+    def test_safe_write_creates_nothing_outside_the_root(self):
+        loader = importlib.machinery.SourceFileLoader(
+            "initialize_project_under_test", str(ROOT / "scripts" / "initialize-project"))
+        module = types.ModuleType(loader.name)
+        module.__file__ = loader.path
+        loader.exec_module(module)
+        base = self.make_dir()
+        root, outside = base / "root", base / "outside"
+        root.mkdir()
+        outside.mkdir()
+        (root / "docs").symlink_to(outside, target_is_directory=True)
+        with self.assertRaises(OSError):
+            module.safe_write(root.resolve(), "docs/sub/x.md", b"x")
+        self.assertEqual(list(outside.iterdir()), [])
+        # an ordinary nested path is written
+        module.safe_write(root.resolve(), "ok/sub/x.md", b"x")
+        self.assertEqual((root / "ok" / "sub" / "x.md").read_bytes(), b"x")
 
     def test_initialize_project_only_writes_inside_the_root(self):
         tree, result = self.generate("second")
