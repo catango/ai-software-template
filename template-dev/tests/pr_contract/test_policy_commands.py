@@ -20,7 +20,6 @@ GIT_ENV = {
     "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_SYSTEM": "/dev/null", "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "noreply",
     "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "noreply",
 }
-OPERATOR_CONFIG = "schema_version: 1\nworkflow:\n  operator_paths:\n    - \"ops/\"\n  operator_commands:\n    - \"git\"\n"
 PASSING_CI = (ROOT / "tests/quality-gate/fixtures/workflow-policy/pass-aggregate/.github/workflows/ci.yml").read_text()
 PASSING_PR_CONTRACT = (ROOT / "tests/quality-gate/fixtures/workflow-policy/pass-required-names/.github/workflows/pr-contract.yml").read_text()
 
@@ -64,9 +63,7 @@ class PolicyCommands(unittest.TestCase):
         self.head = self.base / "head"
         shutil.copytree(ROOT / "scripts" / "checks", self.base / "scripts" / "checks", ignore=shutil.ignore_patterns("__pycache__"))
         shutil.copytree(ROOT / "scripts" / "lib", self.base / "scripts" / "lib")
-        # operator-contract reads its policy with the strict reader of scripts/pr_contract, which sits beside the checks
-        shutil.copytree(ROOT / "scripts" / "pr_contract", self.base / "scripts" / "pr_contract", ignore=shutil.ignore_patterns("__pycache__"))
-        write(self.base, "config/project.yaml", OPERATOR_CONFIG)
+        write(self.base, "config/project.yaml", "schema_version: 1\n")
         write(self.base, ".github/workflows/ci.yml", PASSING_CI)
         write(self.base, ".github/workflows/pr-contract.yml", PASSING_PR_CONTRACT)
         git(self.base, "init", "-q")
@@ -99,7 +96,7 @@ class PolicyCommands(unittest.TestCase):
 
     def test_the_loop_runs_every_check_of_the_list(self):
         result = self.run_step()
-        for check in ("workflow-policy", "no-claude-in-workflows", "forbidden-api", "operator-contract"):
+        for check in ("workflow-policy", "no-claude-in-workflows", "forbidden-api"):
             self.assertIn(f"pr-contract: {check}: ok", result.stdout + result.stderr)
 
     def test_a_violation_in_the_head_fails(self):
@@ -154,7 +151,7 @@ class PolicyCommands(unittest.TestCase):
         self.assertIn("WP-13", result.stdout + result.stderr)
 
     def test_a_missing_checker_on_the_base_commit_fails(self):
-        for check in ("workflow-policy", "no-claude-in-workflows", "forbidden-api", "operator-contract"):
+        for check in ("workflow-policy", "no-claude-in-workflows", "forbidden-api"):
             with self.subTest(check=check):
                 saved = (self.base / "scripts" / "checks" / f"{check}.sh").read_bytes()
                 (self.base / "scripts" / "checks" / f"{check}.sh").unlink()
@@ -190,22 +187,6 @@ class PolicyCommands(unittest.TestCase):
         result = self.run_step()
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertNotIn("::error", result.stdout + result.stderr)
-
-    def test_a_violation_under_the_operator_paths_of_the_base_fails(self):
-        self.head_edit("ops/tool.py", "import os\nos.system('x')\n")
-        result = self.run_step()
-        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-        self.assertIn("operator-contract: failed", result.stdout + result.stderr)
-        self.assertIn("ops/tool.py:2: os.system is not allowed", result.stdout + result.stderr)
-
-    def test_a_pr_that_weakens_operator_contract_and_its_policy_and_adds_a_violation_still_fails(self):
-        # S-20, S-21: the head replaces the checker, empties operator_paths in its own configuration, and adds a violation.
-        write(self.head, "scripts/checks/operator-contract.sh", "#!/usr/bin/env bash\nexit 0\n")
-        write(self.head, "config/project.yaml", "schema_version: 1\nworkflow:\n  operator_paths: []\n")
-        self.head_edit("ops/tool.py", "import os\nos.system('x')\n")
-        result = self.run_step()
-        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-        self.assertIn("operator-contract: failed", result.stdout + result.stderr)
 
 
 if __name__ == "__main__":

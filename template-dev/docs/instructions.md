@@ -16,7 +16,6 @@ disagree. It changes no decision. The seed commit is the fourth entry of `templa
 | Operator guard | `scripts/lib/operator_guard.py` | owned |
 | Configuration | key `workflow.operator_commands` in the schema, the writer, the reader, and the template's own `config/project.yaml` | owned, seeded |
 | Fixtures and tests | `tests/quality-gate/fixtures/{claude-md,deny-list,operator-contract}/`, new functions in `tests/quality-gate/run.sh`, `template-dev/tests/test_instructions.py` | owned, template-only |
-| Workflow | `operator-contract` joins the policy checks that `pr-contract.yml` runs from the base against the head | owned |
 
 The manifest needed no new pattern; every new file already had exactly one class.
 
@@ -52,9 +51,9 @@ and its endpoint list and was not copied; only the idea of a base-commit policy 
 
 - **Inactive** for an explicit empty `operator_paths` (the check exits 0 without judging a file). **Fails closed** when the configuration
   of the base commit is missing, unreadable, or lacks `operator_paths`, and when the base commit cannot be resolved.
-- **Policy from the base.** `quality-gate.sh --base` and `pr-contract.yml` set `GATE_BASE_REF`; the check reads `config/project.yaml`
-  from that commit with the strict reader of `pr_contract.config` (the same reader PC-8 uses) and never from the head. The check
-  scripts come from the base checkout in `pr-contract.yml`.
+- **Policy from the base.** `quality-gate.sh --base` sets `GATE_BASE_REF`, and so will the base-run step of `pr-contract.yml` once the
+  follow-up adds the check (point 7); the check reads `config/project.yaml` from that commit with the strict reader of
+  `pr_contract.config` (the same reader PC-8 uses) and never from the head. `scripts/pr_contract/` must sit beside the checks.
 - **Python rules** (the syntax tree, nothing is run): no `shell=True`, `os.system`, `os.popen`, `os.exec*`, `os.spawn*`, `pty`, `eval`,
   `exec`, or dynamic import; a subprocess needs a literal argument list whose program is a bare name listed in `operator_commands`;
   no token read from the command line (an option or a variable named like a credential) or from the environment (a credential-like
@@ -139,14 +138,23 @@ decision 9 are in `CLAUDE.md`.
    "never run by Claude Code" is a rule and an entry for the preset list, not a core deny entry.
 5. **Shell operator scripts.** A shell script under `operator_paths` fails `operator-contract`, because the subprocess, token, and dry-run
    rules cannot be checked there. The platform's scripts of this kind would need to be Python.
-6. **`claude-md` and `deny-list` are not on the base-against-head list of `pr-contract.yml`.** ADR-009 decision 14 lists the six
-   policy checks (`workflow-policy`, `no-claude-in-workflows`, `forbidden-api`, `owned-drift`, `operator-contract`,
-   `dependabot-config`), and these two are not among them. Their inputs are the owned files that a pull request changes, and they
-   have no policy input to read from the base; running the base's copy of the check would still compare the head's `CLAUDE.md` with
-   the head's `state.toml` and the head's `required-deny.txt` with the head's `settings.json`. What guards those files against a pull
-   request that edits both sides is `owned-drift` (row 8), which reads the hashes from the base and needs an override entry. Until
-   row 8 lands that gap is open in a generated repository; the code-owner review of the approver is the control.
-7. **The first pull request that adds `operator-contract` to `pr-contract.yml` fails `pr-contract`.** The base commit lacks the checker, and
-   ADR-009 decision 14 removed the bootstrap skip (see `pr-contract.md`, point 4 of the first row). The approver merges on judgement.
+6. **Which checks belong on the base-against-head list of `pr-contract.yml`.** ADR-009 decision 14 lists the six policy checks
+   (`workflow-policy`, `no-claude-in-workflows`, `forbidden-api`, `owned-drift`, `operator-contract`, `dependabot-config`).
+   `operator-contract` belongs there: its policy (`operator_paths`, `operator_commands`) comes from the base commit and a pull
+   request must not widen it. `claude-md` and `deny-list` do not: they have no policy input to read from the base, and the base's
+   copy of the check would still compare the head's `CLAUDE.md` with the head's `state.toml`, and the head's `required-deny.txt`
+   with the head's `settings.json`. What guards those files against a pull request that edits both sides is `owned-drift`
+   (row 8), which reads the hashes from the base and needs an override entry. Until row 8 lands that gap is open in a generated
+   repository; the code-owner review of the approver is the control.
+7. **`operator-contract` is not on the list yet, on purpose (a follow-up pull request).** A checker that is missing on the base commit
+   fails `pr-contract` (ADR-009 decision 14 removed the bootstrap skip), so the pull request that adds the checker cannot also add it
+   to the list without failing its own `pr-contract`. The follow-up, after this one is merged: in `.github/workflows/pr-contract.yml`
+   add `operator-contract` to the id list of the step "Run the policy checks of the base against the head" and update the comment
+   above it (the checks that a later row adds are `owned-drift` and `dependabot-config`; `claude-md` and `deny-list` are not on it, with
+   the reason of point 6). In `template-dev/tests/pr_contract/test_policy_commands.py`: copy `scripts/pr_contract` into the base layout
+   of `setUp` (the check reads its policy with that package), give the base configuration `operator_paths` and `operator_commands`
+   (the check fails closed on a configuration without `operator_paths`), add `operator-contract` to the list asserted by
+   `test_the_loop_runs_every_check_of_the_list`, and add two tests: a violation under the base `operator_paths` fails, and a head
+   that replaces the checker, empties `operator_paths` in its own configuration, and adds a violation still fails.
 8. **A tag not made by `git tag`.** The gate forbids `git tag` in any script, so the guard test writes tag refs as files in a throwaway
    repository. That is a test device and creates nothing in a real repository.
