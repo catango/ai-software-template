@@ -1,0 +1,14 @@
+# Provenance of the generic code (history only).
+#
+# The generic gate code of this template was seeded once from another repository at the
+# commit below. No later link exists: from the first template release on, this repository
+# is the origin of that code. This file is template-only: `scripts/initialize-project`
+# removes it, and it is the one file that may name another repository.
+
+schema_version = 1
+
+[[seed]]
+repository = "catango/ai-lab-platform"
+commit = "19b05d83a8b65464852c3ad97e19d47789e49682"
+plan_row = "2 (gate)"
+# What was taken and how it was changed is in template-dev/docs/gate.md.
