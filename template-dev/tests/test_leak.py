@@ -16,8 +16,9 @@ from helpers import ROOT, TempDirTestCase
 PATTERNS = ROOT / "template-dev" / "leak" / "patterns.toml"
 
 # Files that carry configuration data by design and may therefore hold architecture names
-# and runner labels (the values come from the configuration).
-ARCH_DATA_FILES = frozenset({"config/project.yaml"})
+# and runner labels: the configuration, and the CI manifest, which declares the architectures
+# it has artifacts for (the install engine itself names none).
+ARCH_DATA_FILES = frozenset({"config/project.yaml", "toolchain/ci-manifest.toml"})
 
 
 def dotted(*parts):
