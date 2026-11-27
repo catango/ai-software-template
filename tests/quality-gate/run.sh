@@ -950,6 +950,18 @@ import json, sys
 s = json.load(open(sys.argv[1]))
 sys.exit(0 if s["permissions"]["disableBypassPermissionsMode"] == "disable" and s["enableAllProjectMcpServers"] is False else 1)
 PY
+  # every GraphQL mutation that forbidden-api rejects in scripts is denied for Claude Code's own `gh api` commands too (a mutation
+  # name is a write by its nature, so a pattern on it cannot catch a read); the two files are the same set
+  if python3 -I -B - "$ROOT" <<'PY'; then ok "required-deny.txt denies every mutation name of forbidden-api.toml"; else fail "required-deny.txt denies every mutation name of forbidden-api.toml"; fi
+import json, sys, tomllib
+root = sys.argv[1]
+data = tomllib.load(open(root + "/scripts/checks/forbidden-api.toml", "rb"))
+names = [n for entry in data["graphql"] for n in entry["names"]]
+lines = [l.strip() for l in open(root + "/.claude/required-deny.txt") if l.strip() and not l.startswith("#")]
+deny = set(json.load(open(root + "/.claude/settings.json"))["permissions"]["deny"])
+missing = [n for n in names if f"Bash(gh api *{n}*)" not in lines]
+sys.exit(1 if missing or set(lines) - deny else 0)
+PY
   # the core list is the generic part: it names no infrastructure tool, cloud, host, or architecture
   # (the words are written in pieces so that the payload scan does not find them in this file)
   if grep -Eiq "terraform|tofu|\\bo""ci\\b|oracle""cloud|amd""64|arm""64|aarch""64|x86" "$ROOT/.claude/required-deny.txt"; then

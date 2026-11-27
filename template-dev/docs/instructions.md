@@ -76,7 +76,7 @@ forbids `git tag` in scripts.
 
 ## What the core deny list holds
 
-The list is `.claude/required-deny.txt`: 79 entries. It is the generic part only: merge and review, repository creation and settings,
+The list is `.claude/required-deny.txt`: 111 entries, including a pattern for every GraphQL mutation name that `forbidden-api` rejects (a mutation name is a write by its nature, so the pattern catches no read; a test keeps the two files in step). It is the generic part only: merge and review, repository creation and settings,
 rulesets, branch protection, secrets and variables, environments, collaborators, webhooks and deploy keys, tag refs and releases, the
 credential directory of the GitHub CLI, pushes to the default branch and force pushes, `git tag`, `sudo`, commands that print the
 environment, the SSH client family, and the key directory. It names no infrastructure tool, cloud, host, or architecture; a test
