@@ -174,6 +174,7 @@ def _build_template():
     shas["SIDE"] = commit(repo, "side")
     set_tag(repo, "v1.3.0", shas["SIDE"])
     git(repo, "checkout", "-q", "main")
+    git(repo, "repack", "-a", "-d", "-q")  # one pack instead of thousands of loose objects: copying it per test is cheap
     return root, shas
 
 
@@ -202,6 +203,7 @@ def _build_project():
     assert done.returncode == 0, done.stderr
     git(tree, "init", "-q", "-b", "main")
     commit(tree, "initial")
+    git(tree, "repack", "-a", "-d", "-q")
     return tree
 
 
@@ -221,8 +223,9 @@ class Fixture:
         self.tmp = Path(tmp.name)
         root, self.shas = template()
         self.remotes = self.tmp / "remotes"
-        shutil.copytree(root, self.remotes, symlinks=True)
         self.remote = self.remotes / SOURCE
+        # only the repository, not its working tree: git reads a tag from it, and a test that edits the template calls worktree()
+        shutil.copytree(root / SOURCE / ".git", self.remote / ".git", symlinks=True)
         self.tree = self.tmp / "project"
         shutil.copytree(project(), self.tree, symlinks=True)
 
@@ -260,8 +263,15 @@ class Fixture:
         self.git("checkout", "-q", "main")
         self.git("merge", "-q", "--ff-only", name)
 
+    def worktree(self):
+        """Check the main branch of this test's copy of the template out, so that files of it can be edited."""
+        if not (self.remote / ".template").exists():
+            git(self.remote, "checkout", "-q", "-f", "main")
+        return self.remote
+
     def new_remote_commit(self, version, edits, tag=None, message="extra"):
         """A commit on the main branch of this test's copy of the template; edits is {path: text}."""
+        self.worktree()
         for rel, text in edits.items():
             write(self.remote, rel, text)
         if version:

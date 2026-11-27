@@ -99,7 +99,7 @@ class ContainedInTheDefaultBranch(Base):
         self.assertEqual(self.fx.run("v1.2.0", "--dry-run").returncode, 0)
 
     def test_a_default_branch_other_than_main_is_followed(self):
-        git = self.fx.remote
+        git = self.fx.worktree()
         syncfx.git(git, "branch", "-m", "main", "trunk")
         syncfx.git(git, "checkout", "-q", "-b", "other", self.fx.shas["SIDE"])
         syncfx.git(git, "symbolic-ref", "HEAD", "refs/heads/trunk")
@@ -341,6 +341,7 @@ class TheCloneIsLockedDown(Base):
 class NothingOfTheCloneRuns(Base):
     def test_the_script_of_the_tag_is_written_but_never_run(self):
         sentinel = self.fx.tmp / "ran"
+        self.fx.worktree()
         for rel in ("scripts/template-sync", "scripts/lib/template_sync/cli.py", "scripts/checks/owned-drift.sh", "scripts/quality-gate.sh",
                     ".github/workflows/ci.yml"):
             if (self.fx.remote / rel).exists():
@@ -362,7 +363,7 @@ class NothingOfTheCloneRuns(Base):
         self.assertFalse(sentinel.exists())
 
     def test_a_symbolic_link_in_the_tag_is_refused(self):
-        link = self.fx.remote / "scripts/lib/zz_link.py"
+        link = self.fx.worktree() / "scripts/lib/zz_link.py"
         os.symlink("/etc/passwd", link)
         syncfx.set_version(self.fx.remote, "1.5.0")
         sha = syncfx.commit(self.fx.remote, "v1.5.0")
@@ -370,6 +371,7 @@ class NothingOfTheCloneRuns(Base):
         self.refused("v1.5.0", text="symbolic link")
 
     def test_a_submodule_in_the_tag_is_refused(self):
+        self.fx.worktree()
         syncfx.git(self.fx.remote, "update-index", "--add", "--cacheinfo", f"160000,{self.fx.shas['A']},scripts/lib/zz_sub")
         syncfx.set_version(self.fx.remote, "1.5.0")
         syncfx.git(self.fx.remote, "add", ".template/manifest.toml")
@@ -384,12 +386,12 @@ class TheTagIsJudgedByItsOwnManifest(Base):
         self.refused("v1.5.0", text="no class")
 
     def test_a_file_with_two_classes_is_refused(self):
-        text = read(self.fx.remote, ".template/manifest.toml").decode().replace("template-only = [\n", 'template-only = [\n  "docs/PROJECT.md",\n', 1)
+        text = read(self.fx.worktree(), ".template/manifest.toml").decode().replace("template-only = [\n", 'template-only = [\n  "docs/PROJECT.md",\n', 1)
         self.fx.new_remote_commit("1.6.0", {".template/manifest.toml": text}, tag="v1.6.0")
         self.refused("v1.6.0", text="more than one class")
 
     def test_a_new_owned_path_that_the_project_already_has_as_a_seeded_file_is_refused(self):
-        text = read(self.fx.remote, ".template/manifest.toml").decode()
+        text = read(self.fx.worktree(), ".template/manifest.toml").decode()
         text = text.replace('  "docs/PLATFORM.md",\n', "", 1).replace('owned = [\n', 'owned = [\n  "docs/PLATFORM.md",\n', 1)
         self.fx.new_remote_commit("1.5.0", {".template/manifest.toml": text}, tag="v1.5.0")
         self.refused("v1.5.0", text="docs/PLATFORM.md")
