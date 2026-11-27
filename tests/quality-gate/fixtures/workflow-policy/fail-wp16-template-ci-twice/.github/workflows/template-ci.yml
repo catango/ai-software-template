@@ -1,0 +1,22 @@
+name: template-ci
+on:
+  pull_request:
+    types: [opened, edited, synchronize]
+permissions: {}
+jobs:
+  template-ci:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567 # v4.2.2
+        with:
+          persist-credentials: false
+      - run: echo ok
+  again:
+    name: template-ci
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - run: echo ok

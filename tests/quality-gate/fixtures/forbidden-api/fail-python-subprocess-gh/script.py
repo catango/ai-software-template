@@ -1,0 +1,3 @@
+#!/usr/bin/env python3
+import subprocess
+subprocess.run(["gh", "api", "-X", "PUT", "repos/o/r/pulls/1/merge"], check=True)

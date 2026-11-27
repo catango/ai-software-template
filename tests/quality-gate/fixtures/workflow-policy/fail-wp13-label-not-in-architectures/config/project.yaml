@@ -1,0 +1,8 @@
+schema_version: 1
+architectures:
+  - name: arch-a
+    runner: runner-a
+    runner_private: runner-a2
+  - name: arch-b
+    runner: runner-b
+    runner_private: ""

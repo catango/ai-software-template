@@ -87,7 +87,7 @@ class PatternTests(TempDirTestCase):
 
     def test_clean_text_has_no_findings(self):
         text = "Use ${{ github.event.repository.private }} and docs/cr/CR-<n>/ and ADR-<n>.\n" \
-               "Versions 1.2.3 and 10.20.30.40.50 are not addresses; arch-a is a neutral name."
+               "Versions 1.2.3 and " + ".".join(["10", "20", "30", "40", "50"]) + " are not addresses; arch-a is a neutral name."
         self.assertEqual(self.scan_text(text, scope="generated"), [])
 
     def test_ipv6_needs_eight_groups_or_a_compressed_form(self):

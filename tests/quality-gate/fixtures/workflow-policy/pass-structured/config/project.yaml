@@ -1,0 +1,3 @@
+schema_version: 1
+# A configuration may list the arm64 label (the template repository does); the code default no longer does (CR-57 PR 6).
+runner_labels: [ubuntu-latest, runner-x]

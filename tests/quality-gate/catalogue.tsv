@@ -1,0 +1,26 @@
+# Catalogue of quality-gate checks, kept equal to the specification of the checks by tests/quality-gate/run.sh.
+# Columns (tab-separated): id, class, status.
+# status: `present` = scripts/checks/<id>.sh exists, and `quality-gate.sh --list` must show exactly these rows with exactly these
+#         classes; `planned` = added by a later implementation pull request of the template (no script yet).
+# The test compares `quality-gate.sh --list` with the `present` rows only.
+bash-hygiene	generic	present
+shellcheck	generic	present
+yaml	generic	present
+markdown	generic	present
+links	generic	present
+actionlint	generic	present
+python	generic	present
+gate-tests	generic	present
+public-repo-hygiene	generic	present
+workflow-policy	generic	present
+no-claude-in-workflows	generic	present
+toolchain	generic	present
+forbidden-api	template	present
+size-budget	template	present
+dependabot-config	generic	planned
+codeowners	template	planned
+claude-md	template	planned
+deny-list	template	planned
+cr-layout	template	planned
+owned-drift	template	planned
+operator-contract	template	planned
