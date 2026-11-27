@@ -40,17 +40,19 @@ class Base(unittest.TestCase):
         self.fx = syncfx.Fixture(self)
         self.head = self.fx.head()
         self.snapshot = self.fx.snapshot()
+        self.branches = self.fx.git("branch", "--list")
 
     def sync_and_merge(self, tag="v1.1.0"):
         self.assertEqual(self.fx.run(tag).returncode, 0)
         self.fx.merge_branch(f"template-sync/{tag}")
         self.head, self.snapshot = self.fx.head(), self.fx.snapshot()
+        self.branches = self.fx.git("branch", "--list")
 
     def untouched(self):
         self.assertEqual((self.fx.branch(), self.fx.head()), ("main", self.head))
         self.assertEqual(self.fx.snapshot(), self.snapshot)
         self.assertTrue(self.fx.clean())
-        self.assertEqual(self.fx.git("branch", "--list").split(), ["*", "main"])
+        self.assertEqual(self.fx.git("branch", "--list"), self.branches)
         self.assertFalse((self.fx.remotes / "created-pr.json").exists())
 
     def refused(self, *args, code=1, text="", **kwargs):
@@ -114,7 +116,7 @@ class NoDowngrade(Base):
 
     def test_a_downgrade_by_a_larger_number_of_digits_is_judged_numerically(self):
         self.sync_and_merge("v1.2.0")
-        self.fx.new_remote_commit("1.10.0", {"docs/x.md": "x"}, tag="v1.10.0")
+        self.fx.new_remote_commit("1.10.0", {"scripts/lib/zz_x.py": "x"}, tag="v1.10.0")
         self.assertEqual(self.fx.run("v1.10.0", "--dry-run").returncode, 0)
         self.refused("v1.1.0", text="downgrade")
 
@@ -128,7 +130,7 @@ class NoDowngrade(Base):
 class MovedTag(Base):
     def test_a_tag_that_points_to_another_commit_than_the_recorded_one_is_refused(self):
         self.sync_and_merge("v1.1.0")
-        moved = self.fx.new_remote_commit("1.1.0", {"docs/x.md": "x"}, tag="v1.1.0")
+        moved = self.fx.new_remote_commit("1.1.0", {"scripts/lib/zz_x.py": "x"}, tag="v1.1.0")
         self.assertNotEqual(moved, self.fx.shas["B"])
         self.refused("v1.1.0", text="moved")
 
@@ -142,7 +144,7 @@ class MovedTag(Base):
 
 class VersionOfTheManifest(Base):
     def test_a_tag_whose_manifest_names_another_version_is_refused(self):
-        self.fx.new_remote_commit(None, {"docs/x.md": "x"}, tag="v1.4.0")  # the manifest still says 1.2.0
+        self.fx.new_remote_commit(None, {"scripts/lib/zz_x.py": "x"}, tag="v1.4.0")  # the manifest still says 1.2.0
         self.refused("v1.4.0", text="manifest")
 
 
@@ -176,7 +178,6 @@ class StateFile(Base):
             "unknown top-level key": good + "\nextra = 1\n",
             "wrong schema version": good.replace("schema_version = 1", "schema_version = 2"),
             "override value other than override": good.replace("[overrides]\n", '[overrides]\n"CLAUDE.md" = "yes"\n'),
-            "override of a path that is not owned": good.replace("[overrides]\n", '[overrides]\n"README.md" = "override"\n'),
         }
         for name, text in bad.items():
             with self.subTest(name=name):

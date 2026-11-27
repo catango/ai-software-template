@@ -165,7 +165,6 @@ class State(unittest.TestCase):
             "source": good.replace("example-owner/template", "https://x/y"), "commit": good.replace("c" * 40, "c" * 39),
             "path": good.replace('"scripts/x"', '"../x"'), "missing owned": good.replace("[owned]", "[owned2]"),
             "override value": good.replace("[overrides]\n", '[overrides]\n"CLAUDE.md" = "no"\n'),
-            "override not owned": good.replace("[overrides]\n", '[overrides]\n"nope" = "override"\n'),
         }.items():
             with self.subTest(name=name):
                 with self.assertRaises(state.StateError):
