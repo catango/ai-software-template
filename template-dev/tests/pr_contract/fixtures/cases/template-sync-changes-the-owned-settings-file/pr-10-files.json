@@ -1,0 +1,14 @@
+[
+ {
+  "filename": ".claude/settings.json",
+  "status": "modified"
+ },
+ {
+  "filename": ".template/state.toml",
+  "status": "modified"
+ },
+ {
+  "filename": ".template/manifest.toml",
+  "status": "modified"
+ }
+]

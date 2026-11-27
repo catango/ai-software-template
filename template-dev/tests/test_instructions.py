@@ -77,16 +77,19 @@ class _Change:
 
 class _Pr:
     base_sha = "base"
+    head_sha = "head"
 
 
 class _Client:
-    """The one thing check_init reads: files of the base commit (the template's manifest, and no state file)."""
+    """What check_init reads: files of the base commit (the exported template: its manifest, no state file) and of the head
+    commit (the generated tree: the settings file and the seeded deny list)."""
 
-    def __init__(self, manifest_text):
-        self.manifest_text = manifest_text
+    def __init__(self, base_dir, head_dir):
+        self.dirs = {"base": base_dir, "head": head_dir}
 
     def file_text(self, sha, path):
-        return self.manifest_text if path == ".template/manifest.toml" else None
+        target = self.dirs[sha] / path
+        return target.read_text(encoding="utf-8") if target.is_file() else None
 
 
 class InitPullRequestTC2(helpers.TempDirTestCase):
@@ -100,24 +103,30 @@ class InitPullRequestTC2(helpers.TempDirTestCase):
         files = [_Change(p, "removed") for p in sorted(set(before) - set(after))]
         files += [_Change(p, "added") for p in sorted(set(after) - set(before))]
         files += [_Change(p, "modified") for p in sorted(set(before) & set(after)) if before[p] != after[p]]
-        manifest = (exported / ".template" / "manifest.toml").read_text()
-        return [v.message for v in template_rules.check_init(_Pr(), files, _Client(manifest))], files
+        return [v.message for v in template_rules.check_init(_Pr(), files, _Client(exported, tree))], files
 
     def test_an_init_pr_without_preset_entries_passes_tc2(self):
         found, files = self.init_pr_violations("neutral")
         self.assertEqual(found, [])
         self.assertNotIn(".claude/settings.json", [f.path for f in files])
 
-    @unittest.expectedFailure
     def test_an_init_pr_with_preset_deny_entries_passes_tc2(self):
-        # OPEN DESIGN QUESTION (see template-dev/docs/instructions.md, point 2): init adds the preset's deny entries to the owned
-        # .claude/settings.json, and TC-2 lets an init PR write only seeded paths. Remove the decorator when the approver decides.
-        found, _ = self.init_pr_violations("second")
+        # The approver's decision of 2026-11-27 (TC-2, option 1): init appends the entries of the preset's deny list to the owned
+        # .claude/settings.json, and an init PR may do exactly that.
+        found, files = self.init_pr_violations("second")
         self.assertEqual(found, [])
+        self.assertIn(".claude/settings.json", [f.path for f in files])
 
-    def test_the_failure_of_the_second_configuration_is_exactly_the_settings_file(self):
-        found, _ = self.init_pr_violations("second")
-        self.assertEqual(found, ["written path is not seeded: .claude/settings.json"])
+    def test_the_settings_change_of_the_second_configuration_is_only_appended_entries(self):
+        exported = helpers.export_template(self.make_dir() / "base")
+        tree, result = self.generate("second")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        before = json.loads((exported / ".claude" / "settings.json").read_text())
+        after = json.loads((tree / ".claude" / "settings.json").read_text())
+        self.assertEqual(after["permissions"]["deny"][:len(before["permissions"]["deny"])], before["permissions"]["deny"])
+        self.assertGreater(len(after["permissions"]["deny"]), len(before["permissions"]["deny"]))
+        before["permissions"]["deny"], after["permissions"]["deny"] = [], []
+        self.assertEqual(before, after)
 
 
 class GeneratedTree(helpers.TempDirTestCase):
