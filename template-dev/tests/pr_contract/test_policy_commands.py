@@ -1,4 +1,4 @@
-"""CR-43 S-6, S-7, S-20, S-21: the commands of the `pr-contract` workflow that run the policy checks.
+"""CR-43 S-20, S-21: the commands of the `pr-contract` workflow that run the policy checks.
 
 The step is cut out of pr-contract.yml and run in a throw-away layout that looks like the job's: the base checkout is the working
 directory (with the checkers) and the head checkout is `head/`, a separate repository that does not contain the base commit.
@@ -22,9 +22,6 @@ GIT_ENV = {
 }
 PASSING_CI = (ROOT / "tests/quality-gate/fixtures/workflow-policy/pass-aggregate/.github/workflows/ci.yml").read_text()
 PASSING_PR_CONTRACT = (ROOT / "tests/quality-gate/fixtures/workflow-policy/pass-required-names/.github/workflows/pr-contract.yml").read_text()
-PASSING_DEPENDABOT = (ROOT / "tests/quality-gate/fixtures/dependabot-config/pass-actions-only/.github/dependabot.yml").read_text()
-DEPENDABOT = ".github/dependabot.yml"
-LIMIT_ZERO = PASSING_DEPENDABOT + "    open-pull-requests-limit: 0\n"
 
 
 def step_script():
@@ -69,12 +66,11 @@ class PolicyCommands(unittest.TestCase):
         write(self.base, "config/project.yaml", "schema_version: 1\n")
         write(self.base, ".github/workflows/ci.yml", PASSING_CI)
         write(self.base, ".github/workflows/pr-contract.yml", PASSING_PR_CONTRACT)
-        write(self.base, DEPENDABOT, PASSING_DEPENDABOT)
         git(self.base, "init", "-q")
         self.base_sha = commit(self.base)
         (self.base / ".gitignore").write_text("head/\n")
         # The head: its own repository, with no history in common with the base (the job's shallow checkout of the head commit).
-        for relative in (".github/workflows/ci.yml", ".github/workflows/pr-contract.yml", "config/project.yaml", DEPENDABOT):
+        for relative in (".github/workflows/ci.yml", ".github/workflows/pr-contract.yml", "config/project.yaml"):
             write(self.head, relative, (self.base / relative).read_text())
         git(self.head, "init", "-q")
         commit(self.head)
@@ -100,7 +96,7 @@ class PolicyCommands(unittest.TestCase):
 
     def test_the_loop_runs_every_check_of_the_list(self):
         result = self.run_step()
-        for check in ("workflow-policy", "no-claude-in-workflows", "operator-contract", "dependabot-config"):
+        for check in ("workflow-policy", "no-claude-in-workflows", "forbidden-api"):
             self.assertIn(f"pr-contract: {check}: ok", result.stdout + result.stderr)
 
     def test_a_violation_in_the_head_fails(self):
@@ -125,43 +121,20 @@ class PolicyCommands(unittest.TestCase):
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertIn("WP-5", result.stdout + result.stderr)
 
-    def assert_dependabot_failure(self, expected):
+    def test_a_forbidden_call_in_the_head_fails(self):
+        self.head_edit("scripts/x.sh", "#!/usr/bin/env bash\nset -euo pipefail\ngh pr merge 5\n")
         result = self.run_step()
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-        self.assertIn("dependabot-config: failed", result.stdout + result.stderr)
-        self.assertIn(expected, result.stdout + result.stderr)
+        self.assertIn("forbidden-api: failed", result.stdout + result.stderr)
 
-    def test_a_head_without_a_dependabot_file_fails(self):
-        self.head_remove(DEPENDABOT)
-        self.assert_dependabot_failure("missing")
-
-    def test_a_head_that_switches_dependabot_off_fails(self):
-        self.head_edit(DEPENDABOT, LIMIT_ZERO)
-        self.assert_dependabot_failure("open-pull-requests-limit is 0")
-
-    def test_a_head_without_the_actions_ecosystem_fails(self):
-        self.head_edit(DEPENDABOT, PASSING_DEPENDABOT.replace("package-ecosystem: github-actions", "package-ecosystem: pip"))
-        self.assert_dependabot_failure("github-actions")
-
-    def test_a_pr_that_weakens_dependabot_config_and_drops_the_file_still_fails(self):
-        # S-21: the head replaces the checker with one that finds nothing and removes or disables the updates; the base checker judges.
-        write(self.head, "scripts/checks/dependabot-config.sh", "#!/usr/bin/env bash\nexit 0\n")
-        for name, edit in (
-            ("no file", None),
-            ("limit 0", LIMIT_ZERO),
-            ("no actions", PASSING_DEPENDABOT.replace("package-ecosystem: github-actions", "package-ecosystem: pip")),
-        ):
-            with self.subTest(case=name):
-                if edit is None:
-                    self.head_remove(DEPENDABOT)
-                else:
-                    self.head_edit(DEPENDABOT, edit)
-                result = self.run_step()
-                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-                self.assertIn("dependabot-config: failed", result.stdout + result.stderr)
-                if edit is None:
-                    write(self.head, DEPENDABOT, PASSING_DEPENDABOT)
-                    commit(self.head)
+    def test_a_pr_that_weakens_forbidden_api_and_adds_a_call_still_fails(self):
+        # S-21: the head replaces the checker and its data with ones that find nothing; the base checker judges.
+        write(self.head, "scripts/checks/forbidden-api.sh", "#!/usr/bin/env bash\nexit 0\n")
+        write(self.head, "scripts/checks/forbidden-api.toml", "schema_version = 1\n")
+        self.head_edit("scripts/x.sh", "#!/usr/bin/env bash\nset -euo pipefail\ngh pr merge 5\n")
+        result = self.run_step()
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("forbidden-api: failed", result.stdout + result.stderr)
 
     def test_a_head_that_widens_the_policy_inputs_is_judged_by_the_base_values(self):
         # S-20: the head allows an action and a runner label and uses both; the base values apply.
@@ -171,14 +144,14 @@ class PolicyCommands(unittest.TestCase):
         result = self.run_step()
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertIn("WP-4", result.stdout + result.stderr)
-        self.head_edit(".github/workflows/ci.yml", PASSING_CI.replace("ubuntu-24.04", "ubuntu-22.04", 1))
-        self.head_edit("config/project.yaml", "schema_version: 1\nrunner_labels: [ubuntu-22.04]\n")
+        self.head_edit(".github/workflows/ci.yml", PASSING_CI.replace("ubuntu-latest", "runner-x", 1))
+        self.head_edit("config/project.yaml", "schema_version: 1\nrunner_labels: [runner-x]\n")
         result = self.run_step()
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertIn("WP-13", result.stdout + result.stderr)
 
     def test_a_missing_checker_on_the_base_commit_fails(self):
-        for check in ("workflow-policy", "no-claude-in-workflows", "operator-contract", "dependabot-config"):
+        for check in ("workflow-policy", "no-claude-in-workflows", "forbidden-api"):
             with self.subTest(check=check):
                 saved = (self.base / "scripts" / "checks" / f"{check}.sh").read_bytes()
                 (self.base / "scripts" / "checks" / f"{check}.sh").unlink()

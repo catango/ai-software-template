@@ -129,9 +129,9 @@ class Hostile(unittest.TestCase):
         argv = []
         for node in ast.walk(tree):
             if isinstance(node, ast.List) and len(node.elts) >= 2 and all(isinstance(e, ast.Constant) for e in node.elts[:2]):
-                argv.append([e.value for e in node.elts[:2]])
+                argv.append(" ".join(e.value for e in node.elts[:2]))
         self.assertTrue(argv)
-        self.assertTrue(all(pair == ["gh", "api"] for pair in argv), argv)
+        self.assertTrue(all(pair == "gh api" for pair in argv), argv)
 
 
 if __name__ == "__main__":

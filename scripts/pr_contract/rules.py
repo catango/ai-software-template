@@ -255,7 +255,7 @@ def check_implementation(pr, parsed, branch_number, client, base):
             listed = config.design_repos(base.get())
         except ConfigError:
             return out + [Violation("PC-3", DESIGN_REPOS_MESSAGE)]
-        if design_repo not in listed:
+        if design_repo.lower() not in {entry.lower() for entry in listed}:
             return out + [Violation("PC-3", f"repository {clean(design_repo)} is not listed in design_repos")]
         try:
             client.repo_readable(design_repo)

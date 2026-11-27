@@ -94,7 +94,7 @@ class Requests(unittest.TestCase):
         sha = "c" * 40
         c, runner = client({f"repos/o/r/contents/config/project.yaml?ref={sha}": data})
         self.assertEqual(c.file_text(sha, "config/project.yaml"), text)
-        self.assertEqual(runner.calls[0][:2], ["gh", "api"])
+        self.assertEqual(" ".join(runner.calls[0][:2]), "gh api")
 
     def test_a_missing_file_is_none_and_other_failures_are_errors(self):
         sha = "c" * 40

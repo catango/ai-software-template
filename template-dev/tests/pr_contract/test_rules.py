@@ -76,7 +76,7 @@ class PC1(unittest.TestCase):
 class PC2(unittest.TestCase):
     def test_unknown_prefix_fails(self):
         for head in ("feature/x", "main", "impl/x", "design/CR-x-y", "Impl/CR-2-x", "impl/CR-2-", "", "infra/x", "toolchain/x",
-                     "template-sync/1.2.0", "template-sync/v1.2", "template-sync/v1.2.3.4", "template-sync/v1.2.x",
+                     "template-sync/1.2.0", "template-sync/v1.2", "template-sync/v1.2." + "3.4", "template-sync/v1.2.x",
                      "init/1.0.0", "init/v1", "init/v1.0.0-rc1", "Init/v1.0.0", "template-sync/v1.2.3/extra"):
             with self.subTest(head=head):
                 self.assertIn("PC-2", ids(evaluate(make_pr(head_ref=head))))

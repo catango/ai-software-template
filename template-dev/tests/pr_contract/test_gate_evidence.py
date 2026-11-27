@@ -1,4 +1,4 @@
-"""CR-43 S-9: scripts/gate-evidence prints one line of the design section 7 format from the host's own values, and nothing that
+"""CR-43 S-9: scripts/gate-evidence prints one line of the PC-9 format from the host's own values, and nothing that
 identifies the host.
 
 The script runs in a throw-away repository whose quality gate is a stub, so the real gate is never started. A fake `uname` stands
@@ -59,6 +59,8 @@ class GateEvidence(unittest.TestCase):
         self.repo = pathlib.Path(self.tmp) / "repo"
         (self.repo / "scripts").mkdir(parents=True)
         shutil.copy(SCRIPT, self.repo / "scripts" / "gate-evidence")
+        (self.repo / "toolchain").mkdir()
+        shutil.copy(helpers.ROOT / "toolchain" / "ci-manifest.toml", self.repo / "toolchain" / "ci-manifest.toml")
         gate = self.repo / "scripts" / "quality-gate.sh"
         gate.write_text(STUB)
         for path in (gate, self.repo / "scripts" / "gate-evidence"):
@@ -162,7 +164,7 @@ class GateEvidence(unittest.TestCase):
         self.assertEqual(self.fields(result.stdout)[4], "dirty")
 
     def test_arm64_on_an_aarch64_host(self):
-        for name in ("arm64", "aarch64"):
+        for name in ("arm64",):
             with self.subTest(name=name):
                 result = self.run_script(name, machine="aarch64")
                 self.assertEqual(result.returncode, 0, result.stderr)
@@ -170,7 +172,7 @@ class GateEvidence(unittest.TestCase):
                 self.assertEqual((fields[0], fields[1]), (f"evidence: {name}", "aarch64"))
 
     def test_an_architecture_that_is_not_this_host_is_refused_and_the_gate_does_not_run(self):
-        for name, machine in (("arm64", "x86_64"), ("amd64", "aarch64"), ("riscv64", "x86_64")):
+        for name, machine in (("arm64", "x86_64"), ("amd64", "aarch64"), ("riscv64", "x86_64"), ("riscv64", "riscv64")):
             with self.subTest(name=name, machine=machine):
                 result = self.run_script(name, machine=machine)
                 self.assertEqual(result.returncode, 2)
@@ -178,9 +180,29 @@ class GateEvidence(unittest.TestCase):
                 self.assertIn("does not match this host", result.stderr)
                 self.assertFalse((pathlib.Path(self.tmp) / "args").exists())
 
-    def test_an_architecture_without_an_alias_must_equal_uname(self):
+    def test_the_machine_names_of_an_architecture_come_from_the_ci_manifest(self):
+        manifest = self.repo / "toolchain" / "ci-manifest.toml"
+        manifest.write_text(manifest.read_text().replace("[architectures]\n", '[architectures]\nriscv64 = ["riscv64"]\n', 1))
         result = self.run_script("riscv64", machine="riscv64")
         self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.fields(result.stdout)[:2], ["evidence: riscv64", "riscv64"])
+
+    def test_a_missing_or_broken_manifest_refuses(self):
+        manifest = self.repo / "toolchain" / "ci-manifest.toml"
+        for text in (None, "not toml [", "[architectures]\narch = 5\n", "schema_version = 1\n"):
+            with self.subTest(text=text):
+                if text is None:
+                    manifest.unlink()
+                else:
+                    manifest.write_text(text)
+                result = self.run_script(host_arch_name())
+                self.assertEqual(result.returncode, 2)
+                self.assertEqual(result.stdout, "")
+                self.assertFalse((pathlib.Path(self.tmp) / "args").exists())
+
+    def test_the_script_names_no_architecture(self):
+        import re
+        self.assertIsNone(re.search(r"\b(amd64|arm64|aarch64|x86[_-]64)\b", SCRIPT.read_text()))
 
     def test_usage_errors_exit_2_and_print_nothing_on_stdout(self):
         for args in ((), ("a", "b"), ("ARM64",), ("arm 64",), ("-x",), ("",), ("arm64;id",), ("a" * 40,)):

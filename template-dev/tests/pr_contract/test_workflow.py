@@ -72,16 +72,21 @@ class Workflow(unittest.TestCase):
 
     def test_the_policy_inputs_come_from_the_base_commit(self):
         self.assertIn("GATE_BASE_REF: ${{ github.event.pull_request.base.sha }}", self.text)
-        for check in ("workflow-policy", 'no-cl""aude-in-workflows', "operator-contract", "dependabot-config"):
+        for check in ("workflow-policy", 'no-cl""aude-in-workflows', "forbidden-api"):
             self.assertIn(check, self.text)
 
     def test_timeout_and_concurrency(self):
         self.assertIn("timeout-minutes:", self.text)
         self.assertIn("cancel-in-progress: true", self.text)
 
-    def test_runner_is_pinned(self):
-        self.assertIn("runs-on: ubuntu-24.04", self.text)
-        self.assertNotIn("latest", self.text)
+    def test_runner_is_the_hosted_base_label_and_names_no_architecture(self):
+        self.assertIn("runs-on: ubuntu-latest", self.text)
+        self.assertNotRegex(self.text, r"(?i)\b(amd64|arm64|aarch64|x86[_-]64|ubuntu-\d)")
+
+    def test_the_token_reaches_only_the_step_that_runs_the_script_and_only_as_gh_token(self):
+        self.assertEqual(self.text.count("github.token"), 1)
+        self.assertIn("GH_TOKEN: ${{ github.token }}", self.text)
+        self.assertNotIn("secrets", self.text)
 
 
 if __name__ == "__main__":
