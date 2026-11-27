@@ -19,8 +19,8 @@ forbidden-api	template	present
 size-budget	template	present
 dependabot-config	generic	planned
 codeowners	template	planned
-claude-md	template	planned
-deny-list	template	planned
+claude-md	template	present
+deny-list	template	present
 cr-layout	template	planned
 owned-drift	template	planned
-operator-contract	template	planned
+operator-contract	template	present

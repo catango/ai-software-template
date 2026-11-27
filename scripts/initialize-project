@@ -10,7 +10,8 @@ Nothing is inherited from the template's own files. The script
   2. validates the configuration and the preset files it names;
   3. removes every `template-only` path;
   4. writes the seeded files: README.md, docs/README.md, config/project.yaml,
-     docs/PLATFORM.md, .claude/deny.platform.txt, and .template/state.toml;
+     docs/PLATFORM.md, .claude/deny.platform.txt, and .template/state.toml; the entries of the
+     platform deny list are also added once to permissions.deny in .claude/settings.json;
   5. prints the configured post-init actions and the rulesets to apply by hand.
 
 It works on local files only. It creates no label, ruleset, repository, collaborator, or
@@ -56,6 +57,37 @@ ACTIONS_APP_ID = 15368
 def fail(message, code=1):
     print(f"initialize-project: {message}", file=sys.stderr)
     return code
+
+
+DENY_ENTRY = re.compile(r"[A-Za-z][A-Za-z0-9_]*(?:\([^\n]+\))?")
+
+
+def merge_platform_deny(root, deny_platform):
+    """The bytes of .claude/settings.json with the entries of the platform deny list added to permissions.deny (after the existing
+    ones, in file order), or None when there is nothing to add. Raises ValueError for an entry that is not a deny rule, or for a
+    settings file that cannot take them."""
+    entries = []
+    for line in deny_platform.decode("utf-8", "replace").splitlines():
+        entry = line.strip()
+        if entry and not entry.startswith("#"):
+            if not DENY_ENTRY.fullmatch(entry):
+                raise ValueError("an entry of the platform deny list is not a deny rule")
+            entries.append(entry)
+    if not entries:
+        return None
+    path = root / ".claude" / "settings.json"
+    try:
+        settings = json.loads(path.read_text(encoding="utf-8"))
+        deny = settings["permissions"]["deny"]
+        if not isinstance(deny, list):
+            raise TypeError
+    except (OSError, ValueError, KeyError, TypeError):
+        raise ValueError(".claude/settings.json has no permissions.deny list to add the platform entries to") from None
+    missing = [e for e in dict.fromkeys(entries) if e not in deny]
+    if not missing:
+        return None
+    deny.extend(missing)
+    return (json.dumps(settings, indent=2) + "\n").encode()
 
 
 def readme(project):
@@ -234,6 +266,10 @@ def main(argv=None):
     platform_doc = (presets["platform_doc"].read_bytes() if presets["platform_doc"]
                     else NEUTRAL_PLATFORM_DOC.encode())
     deny_platform = presets["deny_platform"].read_bytes() if presets["deny_platform"] else b""
+    try:
+        merged = merge_platform_deny(root, deny_platform)
+    except ValueError as exc:
+        return fail(f"{exc}; nothing was changed")
     seeded = {
         "README.md": readme(config["project"]).encode(),
         "docs/README.md": DOCS_INDEX.encode(),
@@ -241,6 +277,10 @@ def main(argv=None):
         "docs/PLATFORM.md": platform_doc,
         ".claude/deny.platform.txt": deny_platform,
     }
+    # The deny-list check wants every entry of the platform list in settings.json, which is an owned file: the entries of a preset
+    # are added to it here, once. A later template-sync must keep them (an override of settings.json; plan row 8 decides how).
+    if merged is not None:
+        seeded[".claude/settings.json"] = merged
 
     if args.dry_run:
         print("Dry run: nothing is written.")

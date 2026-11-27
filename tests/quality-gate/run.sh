@@ -171,6 +171,7 @@ gen_hygiene_cases() {
 run_check_fixtures() {
   local id name dir
   gen_hygiene_cases
+  gen_claude_md_cases
   for dir in "$FIXTURES"/*/ "$WORK"/gen/*/; do
     [[ -d $dir ]] || continue
     id=$(basename "$dir")
@@ -241,6 +242,9 @@ new_repo() {
   d=$(mktemp -d "$WORK/repo.XXXXXX")
   git -C "$d" init -q -b main
   cp -R "$ROOT/scripts" "$d/scripts"
+  # operator-contract fails closed without a readable configuration; this one has no operator paths
+  mkdir -p "$d/config"
+  printf 'schema_version: 1\nworkflow:\n  operator_paths: []\n' >"$d/config/project.yaml"
   printf '%s\n' "$d"
 }
 commit_all() {
@@ -294,7 +298,7 @@ test_dispatcher() {
   # --list, --only, --skip, --base
   gate "$repo" --list
   rc_is "--list exits 0" 0
-  expected="bash-hygiene shellcheck public-repo-hygiene workflow-policy forbidden-api no-claude-in-workflows links yaml markdown size-budget actionlint toolchain python gate-tests"
+  expected="bash-hygiene shellcheck public-repo-hygiene workflow-policy forbidden-api no-claude-in-workflows links yaml markdown size-budget actionlint claude-md deny-list toolchain python operator-contract gate-tests"
   n=$(awk '{print $1}' <<<"$OUT" | grep -Ev '^(ID|CHECK)$' | tr '\n' ' ' | sed 's/ $//')
   if [[ $n == "$expected" ]]; then ok "--list shows check ids in order"; else fail "--list shows check ids in order" "got: $n"; fi
   out_has "--list shows the tool" "shellcheck"
@@ -647,11 +651,290 @@ test_workflow_policy() {
   out_has "the missing if: always() is reported" "the aggregate quality-gate has no if: always()"
 }
 
+# ---------------------------------------------------------------- claude-md (cases that need run-time values)
+
+# Fixtures that need a record number or a hash are built here: the numbers come from fragments, and the hash is computed.
+gen_claude_md_cases() {
+  local d="$WORK/gen/claude-md" src="$FIXTURES/claude-md/pass-ok" name cr='CR' adr='ADR'
+  mk() { # name: a copy of the passing fixture
+    mkdir -p "$d/$1"
+    cp -R "$src/." "$d/$1/"
+  }
+  mk fail-cites-a-change-request
+  printf '\nSee %s-%s for the reason.\n' "$cr" 12 >>"$d/fail-cites-a-change-request/docs/PROJECT.md"
+  sed -i "s|^- Merge a pull request.|- Merge a pull request, as $cr-12 says.|" "$d/fail-cites-a-change-request/CLAUDE.md"
+  printf '%s\n' "CLAUDE.md:11: cites a change request or decision record" >"$d/fail-cites-a-change-request/EXPECT"
+  mk fail-cites-a-decision-record
+  sed -i "s|^- Merge a pull request.|- Merge a pull request, as $adr-003 says.|" "$d/fail-cites-a-decision-record/CLAUDE.md"
+  printf '%s\n' "cites a change request or decision record" >"$d/fail-cites-a-decision-record/EXPECT"
+  mk pass-email-address-is-not-an-import
+  sed -i "s|^- Merge a pull request.|- Merge a pull request. Write to someone$(printf '@')example.org.|" "$d/pass-email-address-is-not-an-import/CLAUDE.md"
+  mk pass-record-number-in-the-seeded-platform-file
+  printf '\nPlatform records: %s-%s.\n' "$adr" 11 >>"$d/pass-record-number-in-the-seeded-platform-file/docs/PLATFORM.md"
+  mk pass-state-hash-matches
+  mkdir -p "$d/pass-state-hash-matches/.template"
+  printf 'schema_version = 1\n\n[owned]\n"CLAUDE.md" = "%s"\n' "$(sha256sum "$src/CLAUDE.md" | cut -d' ' -f1)" >"$d/pass-state-hash-matches/.template/state.toml"
+  mk fail-edited-after-the-hash-was-recorded
+  mkdir -p "$d/fail-edited-after-the-hash-was-recorded/.template"
+  printf 'schema_version = 1\n\n[owned]\n"CLAUDE.md" = "%s"\n' "$(sha256sum "$src/CLAUDE.md" | cut -d' ' -f1)" >"$d/fail-edited-after-the-hash-was-recorded/.template/state.toml"
+  printf '\n- Never mind.\n' >>"$d/fail-edited-after-the-hash-was-recorded/CLAUDE.md"
+  printf '%s\n' "differs from its hash" >"$d/fail-edited-after-the-hash-was-recorded/EXPECT"
+}
+
+# ---------------------------------------------------------------- operator-contract (policy from the base commit)
+
+OC_FX="$FIXTURES/operator-contract"
+
+test_operator_contract() {
+  local repo base
+  # operator_paths and operator_commands come from the base commit, not from the head. The head widens the allowlist, or
+  # empties operator_paths, and relies on it in the same change: from the working tree it passes, from the base it fails.
+  repo=$(new_repo)
+  mkdir -p "$repo/config" "$repo/ops"
+  cp "$OC_FX/pass-ok/config/project.yaml" "$repo/config/project.yaml"
+  cp "$OC_FX/pass-ok/ops/tool.py" "$repo/ops/tool.py"
+  commit_all "$repo" base
+  cp "$OC_FX/fail-subprocess-program-not-listed/ops/tool.py" "$repo/ops/tool.py"
+  sed -i 's|    - "git"|    - "git"\n    - "curl"|' "$repo/config/project.yaml"
+  base=$(head_commit "$repo")
+  gate "$repo" --only operator-contract
+  rc_is "operator-contract: a head that widens operator_commands passes when read from the working tree" 0
+  gate "$repo" --only operator-contract --base "$base"
+  rc_is "operator-contract --base: the same head fails by the base operator_commands" 1
+  out_has "operator-contract --base: the finding is the program" "does not list"
+  RC=0
+  OUT=$(GATE_BASE_REF=$base "$BASH" "$repo/scripts/quality-gate.sh" --only operator-contract 2>&1) || RC=$?
+  rc_is "operator-contract GATE_BASE_REF: the same head fails by the base operator_commands" 1
+
+  repo=$(new_repo)
+  mkdir -p "$repo/config" "$repo/ops"
+  cp "$OC_FX/pass-ok/config/project.yaml" "$repo/config/project.yaml"
+  cp "$OC_FX/fail-os-system/ops/tool.py" "$repo/ops/tool.py"
+  commit_all "$repo" base
+  cp "$OC_FX/pass-inactive-when-operator-paths-is-empty/config/project.yaml" "$repo/config/project.yaml"
+  printf '# touch\n' >>"$repo/ops/tool.py"
+  base=$(head_commit "$repo")
+  gate "$repo" --only operator-contract
+  rc_is "operator-contract: a head that empties operator_paths passes when read from the working tree" 0
+  gate "$repo" --only operator-contract --base "$base"
+  rc_is "operator-contract --base: the same head fails by the base operator_paths" 1
+  out_has "operator-contract --base: the finding is os.system" "os.system"
+
+  # the base allows the program: the head passes under --base
+  repo=$(new_repo)
+  mkdir -p "$repo/config" "$repo/ops"
+  cp "$OC_FX/pass-ok/config/project.yaml" "$repo/config/project.yaml"
+  cp "$OC_FX/pass-ok/ops/tool.py" "$repo/ops/tool.py"
+  printf '\n# touch\n' >>"$repo/ops/tool.py"
+  commit_all "$repo" base
+  printf '# touch\n' >>"$repo/ops/tool.py"
+  base=$(head_commit "$repo")
+  gate "$repo" --only operator-contract --base "$base"
+  rc_is "operator-contract --base: a script that follows the base policy passes" 0
+
+  # an unreadable base fails closed; so does a base without a configuration file
+  RC=0
+  OUT=$(GATE_BASE_REF=no-such-ref "$BASH" "$repo/scripts/quality-gate.sh" --only operator-contract 2>&1) || RC=$?
+  rc_is "operator-contract: an unreadable base commit fails closed" 1
+  RC=0
+  OUT=$(GATE_BASE_REF=--no-such-option "$BASH" "$repo/scripts/quality-gate.sh" --only operator-contract 2>&1) || RC=$?
+  rc_is "operator-contract: a base value that looks like an option fails closed" 1
+  git -C "$repo" rm -q config/project.yaml
+  commit_all "$repo" "no config"
+  printf '# touch\n' >>"$repo/ops/tool.py"
+  base=$(head_commit "$repo")
+  gate "$repo" --only operator-contract --base "$base"
+  rc_is "operator-contract: a base without a configuration file fails closed" 1
+  out_has "operator-contract: the failure says so" "fails closed"
+}
+
+# ---------------------------------------------------------------- operator_guard
+
+# make_tag REPO NAME [annotated]: a tag written as a ref file (the tests make no `git tag` call, which the gate forbids).
+make_tag() {
+  local repo=$1 name=$2 sha obj
+  sha=$(git -C "$repo" rev-parse HEAD)
+  if [[ ${3:-} == annotated ]]; then
+    obj=$(printf 'object %s\ntype commit\ntag %s\ntagger test <noreply> 1700000000 +0000\n\nrelease\n' "$sha" "$name" | git -C "$repo" hash-object -t tag -w --stdin)
+    sha=$obj
+  fi
+  mkdir -p "$repo/.git/refs/tags"
+  printf '%s\n' "$sha" >"$repo/.git/refs/tags/$name"
+}
+guard_repo() { # a throwaway repository with one commit, and origin/main (with origin/HEAD) at it
+  local d
+  d=$(mktemp -d "$WORK/guard.XXXXXX")
+  git -C "$d" init -q -b main
+  printf 'one\n' >"$d/file"
+  commit_all "$d" one
+  git -C "$d" update-ref refs/remotes/origin/main HEAD
+  git -C "$d" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main
+  printf '%s\n' "$d"
+}
+guard() { # repo args...: sets OUT and RC
+  local repo=$1
+  shift
+  RC=0
+  OUT=$(python3 -I -B "$ROOT/scripts/lib/operator_guard.py" --repo "$repo" "$@" 2>&1) || RC=$?
+}
+
+test_operator_guard() {
+  local repo side
+  command -v git >/dev/null 2>&1 || {
+    skip "operator_guard tests (tool not installed: git)"
+    return
+  }
+  repo=$(guard_repo)
+  make_tag "$repo" v1.2.3
+  guard "$repo"
+  rc_is "operator_guard: a clean checkout at a release tag in the default branch is allowed" 0
+  out_has "operator_guard: it prints the tag" "v1.2.3"
+
+  repo=$(guard_repo)
+  make_tag "$repo" v2.0.0 annotated
+  guard "$repo"
+  rc_is "operator_guard: an annotated release tag is allowed" 0
+
+  repo=$(guard_repo)
+  guard "$repo"
+  rc_is "operator_guard: an untagged commit is refused" 1
+  out_has "operator_guard: the refusal says HEAD is not a release tag" "HEAD is not a release tag"
+
+  repo=$(guard_repo)
+  make_tag "$repo" v1.0.0
+  printf 'two\n' >"$repo/file"
+  commit_all "$repo" two
+  git -C "$repo" update-ref refs/remotes/origin/main HEAD
+  guard "$repo"
+  rc_is "operator_guard: a commit after the tag is refused" 1
+
+  repo=$(guard_repo)
+  make_tag "$repo" release-1
+  make_tag "$repo" v1.2
+  make_tag "$repo" v1.2.3-rc1
+  make_tag "$repo" v01.2.3
+  guard "$repo"
+  rc_is "operator_guard: tags that are not release versions are refused" 1
+
+  # a release tag on a commit that the default branch does not contain
+  repo=$(guard_repo)
+  git -C "$repo" switch -q -c side
+  printf 'side\n' >"$repo/file"
+  commit_all "$repo" side
+  make_tag "$repo" v3.0.0
+  guard "$repo"
+  rc_is "operator_guard: a tag not contained in the default branch is refused" 1
+  out_has "operator_guard: the refusal says so" "not contained in the default branch"
+  git -C "$repo" update-ref refs/remotes/origin/main HEAD
+  guard "$repo"
+  rc_is "operator_guard: the same tag is allowed once the default branch contains it" 0
+
+  repo=$(guard_repo)
+  make_tag "$repo" v1.0.0
+  printf 'dirty\n' >"$repo/file"
+  guard "$repo"
+  rc_is "operator_guard: a modified work tree is refused" 1
+  git -C "$repo" checkout -q -- file
+  printf 'x\n' >"$repo/untracked"
+  guard "$repo"
+  rc_is "operator_guard: an untracked file is refused" 1
+
+  repo=$(guard_repo)
+  make_tag "$repo" v1.0.0
+  git -C "$repo" symbolic-ref --delete refs/remotes/origin/HEAD
+  guard "$repo"
+  rc_is "operator_guard: an unknown default branch is refused" 1
+  out_has "operator_guard: the refusal says the default branch is unknown" "default branch is not known"
+  guard "$repo" --default-branch main
+  rc_is "operator_guard: a default branch that is passed is used" 0
+  guard "$repo" --default-branch no-such-branch
+  rc_is "operator_guard: a default branch that does not exist is refused" 1
+  guard "$repo" --default-branch '--x'
+  rc_is "operator_guard: a default branch that looks like an option is refused" 1
+
+  guard "$WORK"
+  rc_is "operator_guard: a directory that is not a work tree is refused" 1
+  guard "-x"
+  rc_is "operator_guard: a repository path that looks like an option is refused" 1
+
+  # the library entry: a dry run is always allowed; an apply run is checked
+  repo=$(guard_repo)
+  RC=0
+  OUT=$(cd "$repo" && python3 -I -B -c 'import sys; sys.path.insert(0, sys.argv[1]); import operator_guard as g; g.require_release(False)' "$ROOT/scripts/lib" 2>&1) || RC=$?
+  rc_is "operator_guard.require_release: a dry run is allowed from an untagged commit" 0
+  RC=0
+  OUT=$(cd "$repo" && python3 -I -B -c 'import sys; sys.path.insert(0, sys.argv[1]); import operator_guard as g; g.require_release(True)' "$ROOT/scripts/lib" 2>&1) || RC=$?
+  rc_is "operator_guard.require_release: an apply run from an untagged commit exits 1" 1
+  out_has "operator_guard.require_release: the message names the guard" "operator_guard: refused"
+  make_tag "$repo" v1.0.0
+  RC=0
+  OUT=$(cd "$repo" && python3 -I -B -c 'import sys; sys.path.insert(0, sys.argv[1]); import operator_guard as g; print(g.require_release(True))' "$ROOT/scripts/lib" 2>&1) || RC=$?
+  rc_is "operator_guard.require_release: an apply run from a release tag returns" 0
+  side=$(git -C "$repo" for-each-ref --format='%(refname)' refs/tags/)
+  if [[ $side == refs/tags/v1.0.0 ]]; then ok "operator_guard: it creates no tag"; else fail "operator_guard: it creates no tag" "$side"; fi
+}
+
+# ---------------------------------------------------------------- instruction files (T-4, T-5, T-6 on the files of this tree)
+
+# frontmatter_paths FILE: prints the globs of the `paths:` list of the frontmatter; fails when the frontmatter is malformed.
+frontmatter_paths() {
+  awk '
+    NR == 1 { if ($0 != "---") exit 2; next }
+    $0 == "---" { closed = 1; exit }
+    /^paths:[ ]*$/ { inlist = 1; next }
+    inlist && /^  - "[^"]+"[ ]*$/ { sub(/^  - "/, ""); sub(/"[ ]*$/, ""); print; found++; next }
+    { exit 3 }
+    END { if (!closed || !found) exit 4 }
+  ' "$1"
+}
+
+test_instruction_files() {
+  local f name globs want_paths
+  # each rule file has valid path scoping: public-repo.md loads always (no frontmatter); the others carry a `paths:` list
+  for name in public-repo bash workflows docs multi-arch operator; do
+    f="$ROOT/.claude/rules/$name.md"
+    if [[ ! -f $f ]]; then
+      fail "rule $name.md exists"
+      continue
+    fi
+    ok "rule $name.md exists"
+    if [[ $name == public-repo ]]; then
+      if [[ $(head -n 1 "$f") != '---' ]]; then ok "rule public-repo.md has no path scoping (always loaded)"; else fail "rule public-repo.md has no path scoping (always loaded)"; fi
+      continue
+    fi
+    if globs=$(frontmatter_paths "$f") && [[ -n $globs ]]; then ok "rule $name.md has a valid paths: list"; else fail "rule $name.md has a valid paths: list"; fi
+  done
+  want_paths=$(printf '%s\n' '.github/workflows/**' | head -n 1)
+  if grep -qxF "$want_paths" <(frontmatter_paths "$ROOT/.claude/rules/workflows.md" || true); then ok "workflows.md is scoped to the workflow directory"; else fail "workflows.md is scoped to the workflow directory"; fi
+  if frontmatter_paths "$ROOT/.claude/rules/bash.md" | grep -qxF '**/*.sh'; then ok "bash.md is scoped to shell files"; else fail "bash.md is scoped to shell files"; fi
+  # the rules that state the operator contract name each part of it
+  for want in 'Never run one' 'Dry run is the default' 'Release tags only' 'Credentials are prompted for or short-lived' \
+    'Fact collection is read-only, enforced in code' 'Output is safe to paste' 'No infrastructure change'; do
+    if grep -qF "$want" "$ROOT/.claude/rules/operator.md"; then ok "operator.md states: $want"; else fail "operator.md states: $want"; fi
+  done
+  # the guardrails of settings.json
+  if python3 -I -B - "$ROOT/.claude/settings.json" <<'PY'; then ok "settings.json keeps bypass mode off and project MCP servers disabled"; else fail "settings.json keeps bypass mode off and project MCP servers disabled"; fi
+import json, sys
+s = json.load(open(sys.argv[1]))
+sys.exit(0 if s["permissions"]["disableBypassPermissionsMode"] == "disable" and s["enableAllProjectMcpServers"] is False else 1)
+PY
+  # the core list is the generic part: it names no infrastructure tool, cloud, host, or architecture
+  # (the words are written in pieces so that the payload scan does not find them in this file)
+  if grep -Eiq "terraform|tofu|\\bo""ci\\b|oracle""cloud|amd""64|arm""64|aarch""64|x86" "$ROOT/.claude/required-deny.txt"; then
+    fail "required-deny.txt names nothing specific to a platform"
+  else
+    ok "required-deny.txt names nothing specific to a platform"
+  fi
+}
+
 # ---------------------------------------------------------------- main
 
 if want dispatcher; then test_dispatcher; fi
 if want classes; then test_classes; fi
 if want workflow-policy; then test_workflow_policy; fi
+if want operator-contract; then test_operator_contract; fi
+if want operator_guard; then test_operator_guard; fi
+if want instructions; then test_instruction_files; fi
 run_check_fixtures
 for f in "$CHECKS"/*.sh; do
   id=$(basename "$f" .sh)

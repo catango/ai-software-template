@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "deny": [
+      "bash(gh pr merge *)",
+      "Bash(git push --force*)",
+      "Read(~/.ssh/**)",
+      "Bash(tool-x *)"
+    ]
+  }
+}
