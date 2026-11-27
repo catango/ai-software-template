@@ -142,8 +142,25 @@ class TemplateLag(Base):
 
     def test_the_first_line_of_check_is_reported(self):
         self.script("#!/bin/sh\necho 'behind by 2 releases'\necho 'second line'\n")
-        helpers.write(self.tree / ".template" / "state.toml", 'schema_version = 1\nversion = "1.2.3"\n')
+        helpers.write(self.tree / ".template" / "state.toml", self.real_state("1.2.3"))
         self.assertEqual(self.lag(), "template-lag (version 1.2.3): behind by 2 releases")
+
+    @staticmethod
+    def real_state(version):
+        """The file as scripts/initialize-project writes it (its own `toml_state`)."""
+        import importlib.machinery
+        import importlib.util
+        loader = importlib.machinery.SourceFileLoader("initialize_project_for_test", str(helpers.ROOT / "scripts" / "initialize-project"))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        module = importlib.util.module_from_spec(spec)
+        loader.exec_module(module)
+        return module.toml_state({"template": {"source": "example-owner/template"}}, version, None, {"CLAUDE.md": "0" * 64})
+
+    def test_a_top_level_version_is_not_the_recorded_version(self):
+        helpers.write(self.tree / ".template" / "state.toml", 'schema_version = 1\nversion = "1.2.3"\n')
+        self.assertTrue(self.lag().startswith("template-lag (no recorded version): "))
+        helpers.write(self.tree / ".template" / "state.toml", 'template = "x"\n')
+        self.assertTrue(self.lag().startswith("template-lag (no recorded version): "))
 
     def test_a_failing_check_does_not_fail_the_context(self):
         self.script("#!/bin/sh\necho 'cannot reach the template'\nexit 4\n")

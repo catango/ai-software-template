@@ -132,7 +132,8 @@ def template_lag(setup, check):
     version = ""
     try:
         with open(state, "rb") as handle:
-            found = tomllib.load(handle).get("version")
+            table = tomllib.load(handle).get("template")
+        found = table.get("version") if isinstance(table, dict) else None
         version = found if isinstance(found, str) and re.fullmatch(r"[0-9A-Za-z.+-]{1,30}", found) else ""
     except (OSError, ValueError):
         pass
