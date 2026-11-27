@@ -414,7 +414,8 @@ class GhClient:
         if not _SHA.fullmatch(commit) or not _SHA.fullmatch(head_sha):
             raise InputError("invalid commit")
         try:
-            data = _object(self._call(["gh", "api", f"repos/{self.repo}/compare/{commit}...{head_sha}"]))
+            basehead = f"{commit}...{head_sha}"
+            data = _object(self._call(["gh", "api", f"repos/{self.repo}/compare/{basehead}"]))
         except NotFound:
             return False
         return data.get("status") in ("identical", "ahead")

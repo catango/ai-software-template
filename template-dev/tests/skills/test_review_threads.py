@@ -356,7 +356,7 @@ class BaseCommitOfTheCall(Base):
         runner = self.runner()
         self.run_("50", client=GhClient(REPO, runner=runner))
         for argv, data in runner.calls:
-            self.assertEqual(argv[:2], ["gh", "api"], argv)
+            self.assertEqual(" ".join(argv[:2]), "gh api", argv)
             self.assertNotIn("-X", argv)
             self.assertIsNone(data)
         queries = [part for argv, _ in runner.calls for part in argv if part.startswith("query=")]
@@ -411,7 +411,7 @@ class BaseCommitOfTheCall(Base):
         mutations = [argv for argv, _ in runner.calls if any(part.startswith("query=mutation") for part in argv)]
         self.assertEqual(len(mutations), 1)
         argv = mutations[0]
-        self.assertEqual(argv[:4], ["gh", "api", "graphql", "-f"])
+        self.assertEqual(" ".join(argv[:4]), "gh api graphql -f")
         query = [part for part in argv if part.startswith("query=")][0]
         self.assertIn("addPullRequestReviewThreadReply", query)
         self.assertNotIn("pullRequestReviewId", query)

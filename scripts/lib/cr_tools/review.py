@@ -12,7 +12,7 @@ documented in template-dev/docs/review-feedback.md). Everything else is not prin
 accounts, and `unread` comments that were not fetched). Text of any other account is data and never reaches the output.
 
 The script refuses a pull request that the machine account did not author and a pull request whose head is not a branch of this
-repository (a fork, or a deleted fork). Its output follows ADR-010 decision 8: a page closes at 5 items (threads, then review
+repository (a fork, or a deleted fork). Its output is paged: a page closes at 5 items (threads, then review
 summaries) or once 4 KiB is reached, never splits an item, and holds at least one; the items on later pages are named on a `cut:`
 line and fetched with `--page`. The approver's text is sanitized (control, bidirectional, and zero-width characters dropped) and never
 shortened.
