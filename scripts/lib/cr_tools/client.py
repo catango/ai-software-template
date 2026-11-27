@@ -11,7 +11,7 @@ Both clients have the same interface. Writes act on the client's own repository 
     repo.json                  {"private": false, "default_branch": "main"}
     issue-<n>.json             an issue as the API returns it (a `pull_request` key marks a pull request)
     pr-<n>.json                a pull request as the API returns it (with `node_id`)
-    pulls.json                 the list of pull requests (one page)
+    pulls.json                 the list of pull requests (one page); an empty file `pulls-limited` makes the search report that it was limited
     labels.json                the labels of the repository: [{"name": "..."}]
     check-runs-<sha>.json      {"check_runs": [...]}        annotations-<id>.json   [...]
     base/config/project.yaml   the configuration of the base commit, or of the default branch for an issue
@@ -189,7 +189,8 @@ class GhClient:
         return data
 
     def pulls_with_prefix(self, prefix, repo=None):
-        """Pull requests (any state) of a repository whose head branch starts with `prefix`; at most MAX_PAGES pages."""
+        """(hits, limited): the pull requests (any state, newest first) of a repository whose head branch starts with `prefix`, and whether the
+        search stopped at MAX_PAGES full pages, so that older pull requests were not looked at."""
         target = self._where(repo)
         hits = []
         for page in range(1, MAX_PAGES + 1):
@@ -201,8 +202,8 @@ class GhClient:
                 if hit is not None:
                     hits.append(hit)
             if len(items) < PAGE_SIZE:
-                break
-        return hits
+                return hits, False
+        return hits, True
 
     def open_pulls_for_branch(self, branch):
         """Numbers of the open pull requests of this repository whose head is `branch` of this repository."""
@@ -335,7 +336,7 @@ class FixtureClient:
         if not isinstance(items, list):
             raise ApiError("malformed response")
         hits = [_search_hit(_object(item), prefix) for item in items]
-        return [hit for hit in hits if hit is not None]
+        return [hit for hit in hits if hit is not None], (self._dir / "pulls-limited").exists()
 
     def open_pulls_for_branch(self, branch):
         items = self._load(self._dir, "pulls.json")

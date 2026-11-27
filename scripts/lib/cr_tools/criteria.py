@@ -2,11 +2,13 @@
 
     cr-criteria [--offline] [--tree DIR] CR        CR is `CR-<n>` or `<n>`
 
-Reads `<root>cr/CR-<n>/acceptance-criteria.md` of the tree (the first record root of `config/project.yaml` that has it) and prints one
+Reads `<root>cr/CR-<n>/acceptance-criteria.md` of the tree (the first record root of the tree's own `config/project.yaml` that has it; no path is read through a symbolic link) and prints one
 JSON object: the file, and for every table row whose first cell is an ID (`T-12`, `AC3-7`): the ID, the criterion, and the evidence
 that the table names. The Skill returns one verdict per ID, posted as ONE pull request comment. A field longer than 400
 characters is cut and the item carries `"cut": true`; read the file by range for the rest. The script reads local files only: the
-flag --offline is accepted so that every Skill script answers the same flag, and it changes nothing.
+flag --offline is accepted so that every Skill script answers the same flag, and it changes nothing. The record roots come from the
+working tree, not from the default branch like in cr-context: the script only locates a file of this tree and judges no identity, and it
+stays offline (see template-dev/docs/skills-core.md).
 
 Exit status: 0 printed, 1 refused (no such change request, no table, or no criterion), 2 usage error.
 """
@@ -95,8 +97,8 @@ def main(argv=None):
             print(common.summary(SCRIPT, "refused: the record roots cannot be read from config/project.yaml"))
             return 1
         for root in roots:
-            path = tree / root / "cr" / f"CR-{number}" / "acceptance-criteria.md"
-            if path.is_file() and not path.is_symlink():
+            path = common.safe_path(tree, root, "cr", f"CR-{number}", "acceptance-criteria.md")
+            if path is not None and path.is_file():
                 break
         else:
             print(common.summary(SCRIPT, f"refused: no acceptance-criteria.md for CR {number} under {', '.join(roots)}"))

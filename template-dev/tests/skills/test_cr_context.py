@@ -119,6 +119,40 @@ class Context(Base):
         self.assertIn("design-pr: #41 merged", out)
         self.assertIn("design-pr: #50 open", out)
 
+    def test_a_search_that_stopped_at_its_page_limit_says_so(self):
+        (self.fix / "pulls-limited").write_text("")
+        _, out, _ = helpers.run_context(self, "40")
+        self.assertIn("design-pr: #41 merged", out)
+        self.assertIn("design-pr: search limited to the newest 500 pull requests", out)
+        (self.fix / "pulls-limited").unlink()
+        self.assertNotIn("search limited", helpers.run_context(self, "40")[1])
+
+    def test_the_online_search_reports_the_limit_when_the_last_page_is_full(self):
+        full = [{"number": n, "title": "t", "state": "closed", "merged_at": None, "head": {"ref": "feature/x"}} for n in range(100)]
+        runner = GitHubErrors().runner(**{f"repos/{REPO}/pulls?": full})
+        code, out, _ = helpers.run_context(self, "40", client=GhClient(REPO, runner=runner), check_lag=False)
+        self.assertEqual(code, 0, out)
+        self.assertEqual(len([call for call, _ in runner.calls if "/pulls?" in " ".join(call)]), 5)
+        self.assertIn("design-pr: none found", out)
+        self.assertIn("search limited to the newest 500 pull requests", out)
+        short = GitHubErrors().runner(**{f"repos/{REPO}/pulls?": full[:99]})
+        _, out, _ = helpers.run_context(self, "40", client=GhClient(REPO, runner=short), check_lag=False)
+        self.assertNotIn("search limited", out)
+        self.assertEqual(len([call for call, _ in short.calls if "/pulls?" in " ".join(call)]), 1)
+
+    def test_a_symbolic_link_anywhere_on_the_path_to_the_cr_directory_is_not_followed(self):
+        outside = self.tmp / "outside"
+        helpers.write(outside / "cr" / "CR-40" / "README.md", "OUTSIDE README")
+        (self.tree / "docs").symlink_to(outside)
+        _, out, _ = helpers.run_context(self, "40")
+        self.assertNotIn("OUTSIDE", out)
+        self.assertIn("cr: no directory CR-40", out)
+        (self.tree / "docs").unlink()
+        (self.tree / "docs").mkdir()
+        (self.tree / "docs" / "cr").symlink_to(outside / "cr")
+        _, out, _ = helpers.run_context(self, "40")
+        self.assertNotIn("OUTSIDE", out)
+
     def test_no_design_pr(self):
         helpers.write(self.fix / "pulls.json", [])
         _, out, _ = helpers.run_context(self, "40")

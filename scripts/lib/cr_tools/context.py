@@ -101,8 +101,8 @@ def _tree_file(path):
 
 def cr_directory(setup, number):
     for root in setup.docs_roots:
-        directory = setup.tree / root / "cr" / f"CR-{number}"
-        if directory.is_dir() and not directory.is_symlink():
+        directory = common.safe_path(setup.tree, root, "cr", f"CR-{number}")
+        if directory is not None and directory.is_dir():
             return directory
     return None
 
@@ -154,17 +154,19 @@ def template_lag(setup, check):
 
 
 def design_pr_line(setup, number):
-    hits = setup.client.pulls_with_prefix(f"design/CR-{number}-", setup.target)
-    if not hits:
-        return "design-pr: none found", None
+    hits, limited = setup.client.pulls_with_prefix(f"design/CR-{number}-", setup.target)
     lines = []
+    if not hits:
+        lines.append("design-pr: none found")
     for hit in hits[:3]:
         state = "merged" if hit["merged"] else ("open" if hit["state"] == "open" else "closed, not merged")
         lines.append(f"design-pr: #{hit['number']} {state}: {clean(hit['title'], 60)}")
     if len(hits) > 3:
         lines.append(f"design-pr: +{len(hits) - 3} more")
+    if limited:
+        lines.append(f"design-pr: search limited to the newest {5 * 100} pull requests; an older one was not looked at")
     merged = [hit for hit in hits if hit["merged"]]
-    return "\n".join(lines), (merged or hits)[0]
+    return "\n".join(lines), ((merged or hits)[0] if hits else None)
 
 
 def mode_context(setup, args, check_lag):

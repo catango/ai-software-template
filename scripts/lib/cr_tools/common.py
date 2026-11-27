@@ -7,6 +7,7 @@ import os
 import re
 import subprocess
 import unicodedata
+from pathlib import Path, PurePosixPath
 
 from pr_contract import api as base_api
 from pr_contract.errors import ApiError, InputError
@@ -80,3 +81,22 @@ def plain(value, limit=300):
     """A line of repository text for the output: control, zero-width and bidirectional characters dropped, cut at `limit`."""
     text = "".join(ch for ch in str(value) if unicodedata.category(ch) not in _CONTROL or ch == "\t")
     return text if len(text) <= limit else text[: limit - 3] + "..."
+
+
+def safe_path(tree, *parts):
+    """`tree/parts` when no component below the tree is a symbolic link and the result stays inside the tree; otherwise None.
+    Nothing is read through a link, whatever the entry of the record roots says."""
+    base = Path(tree)
+    relative = PurePosixPath(*parts)
+    if relative.is_absolute() or ".." in relative.parts:
+        return None
+    current = base
+    for part in relative.parts:
+        current = current / part
+        if current.is_symlink():
+            return None
+    try:
+        current.resolve().relative_to(base.resolve())
+    except ValueError:
+        return None
+    return current

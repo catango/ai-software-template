@@ -32,8 +32,12 @@ The manifest gained one entry, `scripts/cr-preflight`. Everything else matched a
 - **`scripts/pr-checkpoint show | tick ITEM | ready [PR]`**: reads and edits only the text between the checkpoint markers. Both
   markers must occur exactly once, each alone on its line. `tick` changes the `[ ]` of one checklist line, and the script checks
   that nothing else changed. The body is written with the REST PATCH call and a draft is marked ready with the GraphQL mutation
-  `markPullRequestReadyForReview`. `ready` refuses while an item other than the last is open, marks the PR ready, then ticks the
-  last item. `show` also prints the latest check run per name (failed ones with at most three annotation lines) and at most ten
+  `markPullRequestReadyForReview`. `ready` refuses while an item other than the last is open, and unless every check run of the head commit has
+  finished and is green (none found counts as not green); then it ticks the last item FIRST (the PR is still a draft) and marks the PR
+  ready, so a retry after a failure finishes the job (a draft with every item ticked is only marked; a ready PR with an open last item
+  is only ticked). Every write re-reads the PR just before the PATCH and refuses (`the body changed while it was being edited`) when the
+  body is no longer the one that was edited; a window of a few milliseconds between that read and the write remains. A tick or a
+  ready mark changes the body, so `pr-contract` runs again, and `ready` then waits for it to finish. `show` also prints the latest check run per name (failed ones with at most three annotation lines) and at most ten
   commits since the merge base, within 2 KiB, which is what `resume-work` reads. Without a PR number it finds the open PR of the
   current branch.
 
@@ -88,6 +92,18 @@ read (offline: `base/config/project.yaml`); never the working tree.
    label, does nothing when it already has this one, and acts on this repository only. The one write is adding an existing label
    to the issue. A test reads the client source and asserts that the only writes are this one, the body PATCH, and the ready
    mutation. `start-cr` stops on an issue not authored by the approver or the machine account, and never reads the issue body.
+
+## Review follow-up (the coordinating session's review of the first version)
+
+- The template version for the lag line is read from `[template]` of `.template/state.toml`, the shape `initialize-project` writes (the
+  test builds the file with the script's own `toml_state`; an old top-level `version` gives "no recorded version").
+- `cr-context` ends with exit 3 and fixed text on any refused or missing GitHub read (`NotReadable`, `NotFound`), not only `ApiError`.
+- The pull request search stops after 500 pull requests (five pages, newest first). When the last page is full, `cr-context` prints
+  `design-pr: search limited to the newest 500 pull requests; an older one was not looked at` instead of a silent "none found".
+- No path is read through a symbolic link: `cr-context` and `cr-criteria` refuse a link anywhere between the tree and the file, and a root
+  that leaves the tree. **Exception stated:** `cr-criteria` takes the record roots from the working tree's own `config/project.yaml`,
+  not from the default branch like `cr-context`, because it is an offline script that only locates a file of this tree and judges no
+  identity or policy.
 
 ## Criteria
 

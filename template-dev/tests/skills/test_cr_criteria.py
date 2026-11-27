@@ -30,7 +30,8 @@ class Criteria(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
-        self.tree = pathlib.Path(self._tmp.name)
+        self.tmp_dir = pathlib.Path(self._tmp.name)
+        self.tree = self.tmp_dir / "tree"
         helpers.write(self.tree / "config" / "project.yaml", helpers.CONFIG.replace('"docs/"', '"docs/"\n    - "records/"'))
 
     def put(self, text, root="docs", number=7):
@@ -94,6 +95,25 @@ class Criteria(unittest.TestCase):
         path = self.tree / "docs" / "cr" / "CR-7" / "acceptance-criteria.md"
         path.parent.mkdir(parents=True)
         path.symlink_to(outside)
+        self.assertEqual(self.run_it("7")[0], 1)
+
+    def test_a_symbolic_link_on_the_path_is_not_followed(self):
+        outside = self.tmp_dir / "outside"
+        helpers.write(outside / "cr" / "CR-7" / "acceptance-criteria.md", TABLE)
+        (self.tree / "docs").symlink_to(outside)  # the root itself
+        self.assertEqual(self.run_it("7")[0], 1)
+        (self.tree / "docs").unlink()
+        (self.tree / "docs").mkdir()
+        (self.tree / "docs" / "cr").symlink_to(outside / "cr")  # the `cr` directory
+        self.assertEqual(self.run_it("7")[0], 1)
+        (self.tree / "docs" / "cr").unlink()
+        (self.tree / "docs" / "cr").mkdir()
+        (self.tree / "docs" / "cr" / "CR-7").symlink_to(outside / "cr" / "CR-7")  # the CR directory
+        self.assertEqual(self.run_it("7")[0], 1)
+
+    def test_a_root_that_leaves_the_tree_is_refused(self):
+        helpers.write(self.tmp_dir / "elsewhere" / "cr" / "CR-7" / "acceptance-criteria.md", TABLE)
+        (self.tree / "config" / "project.yaml").write_text(helpers.CONFIG.replace('"docs/"', '"../elsewhere/"'))
         self.assertEqual(self.run_it("7")[0], 1)
 
     def test_usage_errors(self):
