@@ -22,5 +22,6 @@ repository carries it, and the payload keeps no change request or ADR instance u
 | [pr-contract](pr-contract.md) | this directory | What plan row 3 built (rules PC-1 to PC-9, TC-1, TC-2), how the seeded code changed, and the points for the approver |
 | [instructions](instructions.md) | this directory | What plan row 4 built (`CLAUDE.md`, rules, guardrails, operator contract) |
 | [CR and ADR templates](cr-templates.md) | this directory | What plan row 5 built (`new-cr`, `cr-layout`, the skeletons, the locator) and the points for the approver |
+| [Skills and their scripts](skills-core.md) | this directory | What plan row 6 built (six Skills, `cr-context`, `cr-preflight`, `cr-criteria`, `pr-checkpoint`), the five verification points, and the points for the approver |
 
 No change request or ADR of this repository exists yet.
