@@ -11,8 +11,8 @@ lists every one and nothing else in the file changes (decision of the approver, 
 by TC-2, and it happens only when the PR modifies that file.
 """
 import json
-import re
 import tomllib
+import unicodedata
 
 import template_manifest
 
@@ -122,8 +122,10 @@ def _without_deny(data):
 
 
 def _listed_entries(text):
-    """The entries of a deny list file: one per line, blank lines and `#` comments skipped (as the gate check deny-list reads it)."""
-    return {line.strip() for line in (text or "").split("\n") if line.strip() and not line.strip().startswith("#")}
+    """The entries of a deny list file: one per line, blank lines and `#` comments skipped. Lines are split with `str.splitlines()`,
+    exactly as `merge_platform_deny` of `scripts/initialize-project` splits them (it also breaks at the control characters 0B, 0C,
+    1C to 1E, 85 and at U+2028 and U+2029), so every line it appends to the settings file is a line here."""
+    return {line.strip() for line in (text or "").splitlines() if line.strip() and not line.strip().startswith("#")}
 
 
 def _check_settings(pr, client):
@@ -172,9 +174,28 @@ def _state_version(client, sha):
     return version if isinstance(version, str) else None
 
 
+def _continues_a_name(char):
+    """A letter, digit, or combining mark of any script, or an underscore: it would make a longer name of a path next to it."""
+    return char.isalnum() or char == "_" or unicodedata.category(char)[0] == "M"
+
+
 def _listed(section, path):
-    """Whether the path appears in the text of a section as a whole token: not as part of a longer path or name."""
-    return re.search(rf"(?<![A-Za-z0-9_./-]){re.escape(path)}(?![A-Za-z0-9_/-]|\.[A-Za-z0-9_-])", section) is not None
+    """Whether the path appears in the text of a section as a whole token: not as part of a longer path or name. The characters next
+    to it decide: a path character (`/`, `.`, `-`, `_`), or a letter, digit or combining mark of any script, makes it part of
+    something else; a space or punctuation of any script does not. A `.` after it ends a sentence unless a name character follows."""
+    start = 0
+    while True:
+        at = section.find(path, start)
+        if at < 0:
+            return False
+        before = section[at - 1] if at else ""
+        after = section[at + len(path):at + len(path) + 2]
+        glued_before = bool(before) and (_continues_a_name(before) or before in "./-")
+        glued_after = bool(after) and (_continues_a_name(after[0]) or after[0] in "/-"
+                                       or (after[0] == "." and len(after) > 1 and _continues_a_name(after[1])))
+        if not glued_before and not glued_after:
+            return True
+        start = at + 1
 
 
 def check_template_sync(pr, files, client, parsed=None):
@@ -210,10 +231,14 @@ def check_template_sync(pr, files, client, parsed=None):
         elif how == "removed" or (how == "written" and status in ("modified", "changed")):
             if not _only(base, path, "owned"):
                 bad.append(f"path is not owned in the base manifest: {clean(path)}")
-        elif _only(head, path, "seeded"):  # added, copied, or the new name of a rename
-            bad.extend(_seeded_addition(path, parsed, pr, client))
-        elif not _only(head, path, "owned"):
-            bad.append(f"added path is neither owned nor seeded in the head manifest: {clean(path)}")
+        else:  # added, copied, or the new name of a rename: judged by the class of the head manifest
+            classes = head.classify(path)
+            if len(classes) > 1:
+                bad.append(f"added path has more than one class in the head manifest: {clean(path)}")
+            elif classes == ["seeded"]:
+                bad.extend(_seeded_addition(path, parsed, pr, client))
+            elif classes != ["owned"]:
+                bad.append(f"added path is neither owned nor seeded in the head manifest: {clean(path)}")
     if not state_written:
         bad.append(f"{STATE} is not updated")
     out.extend(rules.Violation("TC-1", message) for message in bad[:rules.PATH_CAP])

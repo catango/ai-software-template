@@ -435,6 +435,8 @@ class TC2Settings(unittest.TestCase):
         found, _ = init_settings(settings(deny=CORE + ["Bash(oci *)"]), listed="# a comment\x0bBash(oci *)\n")
         self.assertEqual(found, [])
         found, _ = init_settings(settings(deny=CORE + ["Bash(oci *)"]), listed="# a comment \u2028 Bash(oci *)\n")
+        self.assertEqual(found, [])
+        found, _ = init_settings(settings(deny=CORE + ["Bash(oci *)"]), listed="# a comment Bash(oci *)\n")
         self.assertEqual(ids(found, "TC-2"), [NOT_LISTED + "Bash(oci *)"])
 
     def test_an_appended_entry_that_is_not_listed_fails_and_names_the_entry(self):
