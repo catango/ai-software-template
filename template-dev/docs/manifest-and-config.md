@@ -33,7 +33,7 @@ decision of the design.
   inside the configuration's own directory. An absolute path or one that leaves that directory
   is refused.
 - `initialize-project` writes `config/project.yaml` from the validated configuration.
-  Preset-only keys (the preset file paths and `post_init_actions`) are not copied into it.
+  Generation-only keys (`visibility`, the preset file paths, `post_init_actions`) are not copied into it.
 
 ## Tests
 
