@@ -1,0 +1,17 @@
+#!/usr/bin/env python3
+"""The acceptance criteria of a change request as JSON. See scripts/lib/cr_tools/criteria.py.
+
+    scripts/cr-criteria [--offline] [--tree DIR] CR
+"""
+import os
+import sys
+
+sys.dont_write_bytecode = True
+here = os.path.dirname(os.path.realpath(__file__))
+sys.path.insert(0, here)
+sys.path.insert(0, os.path.join(here, "lib"))
+
+from cr_tools import criteria  # noqa: E402
+
+if __name__ == "__main__":
+    sys.exit(criteria.main())

@@ -48,6 +48,7 @@ owned = [
   "scripts/pr-checkpoint",
   "scripts/review-threads",
   "scripts/cr-context",
+  "scripts/cr-preflight",
   "scripts/cr-criteria",
   "scripts/new-cr",
   "scripts/initialize-project",

@@ -1,0 +1,17 @@
+#!/usr/bin/env python3
+"""The PC-3 check before an implementation PR is opened: part of cr-context (`cr-context preflight`).
+
+    scripts/cr-preflight ISSUE DESIGN_PR   [--repo owner/name] [--fixture DIR]
+"""
+import os
+import sys
+
+sys.dont_write_bytecode = True
+here = os.path.dirname(os.path.realpath(__file__))
+sys.path.insert(0, here)
+sys.path.insert(0, os.path.join(here, "lib"))
+
+from cr_tools import context  # noqa: E402
+
+if __name__ == "__main__":
+    sys.exit(context.main(["preflight", *sys.argv[1:]], prog="cr-preflight"))
