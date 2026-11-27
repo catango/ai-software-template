@@ -61,14 +61,14 @@ every key sits in each fixture case and is never read.
 `pr-contract.yml` runs on `pull_request` with read scopes only and no secret. It checks out the base commit and the head commit
 (in `head/`, read-only while the checks run, no persisted credentials), runs `scripts/pr-contract` from the base with the token
 as `GH_TOKEN` for `gh`, then runs the policy checks of the base commit against the head files with `GATE_BASE_REF` set. A checker
-missing on the base commit is a failure; there is no bootstrap skip. The three checks that exist (`workflow-policy`,
-`no-claude-in-workflows`, `forbidden-api`) run. `owned-drift`, `operator-contract`, and `dependabot-config` join the list with the
-rows that create them.
+missing on the base commit is a failure; there is no bootstrap skip. Five checks run: `workflow-policy`,
+`no-claude-in-workflows`, `forbidden-api`, and, since the follow-up below, `operator-contract` and `cr-layout`. `owned-drift` and
+`dependabot-config` join the list with the rows that create them.
 
 ## Left to later rows
 
-- Policy checks `owned-drift` (row 8), `operator-contract` (row 4), and `dependabot-config` (no row names it; the CR-43 plan puts it
-  in the template's PR 2, and row 2 did not seed it): they join the list in `pr-contract.yml`.
+- Policy checks `owned-drift` (row 8) and `dependabot-config` (no row names it; the CR-43 plan puts it in the template's PR 2, and
+  row 2 did not seed it): they join the list in `pr-contract.yml`.
 - The private-repository checklist of the PR templates (CR-43 S-16) and the `codeowners` check (CR-43 plan, template PR 4).
 - The dry-run step that runs these cases against a generated tree (row 9): `PR_CONTRACT_TREE=<tree> template-dev/run-tests.sh skills`
   already does it for `test_cases.py`, and a run against a generated tree passed while this row was written.
@@ -77,10 +77,9 @@ rows that create them.
 
 ## Points for the approver
 
-1. **TC-1 and a new seeded file.** Design section 4 (step 3) says a sync adds a seeded file that is new in the tag and absent
-   locally. TC-1 (design section 4, ADR-008 decision 4) says a template-sync PR adds only paths that are new and `owned` in the
-   head manifest. They disagree. The code follows the text of TC-1 and refuses such a PR (a fixture case and a test say so). If
-   the sync should add new seeded files, TC-1 needs "owned or seeded"; that is a design change, and row 8 meets it first.
+1. **TC-1 and a new seeded file. Decided 2026-11-27 (option B), see "TC-1 and TC-2 after the decisions of 2026-11-27" below.**
+   Design section 4 (step 3) said a sync adds a seeded file that is new in the tag and absent locally, while TC-1 allowed only new
+   `owned` paths. The approver chose "owned or seeded".
 2. **PC-3 across repositories.** The issue and the design PR must be in the same repository (the design PR's "Change request"
    links an issue of its own repository), and the base-branch comparison applies to this repository only. The text of PC-3 does
    not say either; both follow from "linked to the same issue".
@@ -118,7 +117,7 @@ A review of the merged row found seven points. Each was checked against the code
 | 2 | PC-4 and PC-5 hard-coded `docs/`, so the template's own records under `template-dev/docs/` failed PC-4 and were unprotected under PC-5 | Real | New key `workflow.docs_roots` (default `docs/`), read from the base commit, in the reader, the schema, `initialize-project`, and the template's own configuration (`docs/` and `template-dev/docs/`). A malformed key fails closed |
 | 3 | The reader accepted a narrower `operator_paths` than the schema | Real | The schema field now has the reader's form (`item_pattern`, `max_length`); a test compares the schema and the reader on every string of a small alphabet up to length 5, and a full configuration round-trips |
 | 4 | A 401 or 403 counted as "file absent" in `file_text` (TC-2 passed on a refused read) | Real | `errors.NotReadable`: only a 404 returns `None`; a refused read is an error (exit 3) |
-| 5 | TC-1 and a new seeded file disagree with design section 4 | A design question, unchanged | A fixture documents the refusal; the question is in the body of the follow-up PR |
+| 5 | TC-1 and a new seeded file disagree with design section 4 | A design question | Decided 2026-11-27 (option B) and implemented, see the section below |
 | 6 | PC-7 accepted any `uses:` change, including another action | Real | The removed and added lines must name the same actions in order; a new, removed, swapped or different action fails |
 | 7 | One punctuation mark, or a bare checklist marker, satisfied the non-empty rule | Real for punctuation and markers; not for checklist text | List, quote and checkbox markers do not count and at least one letter or digit is needed. An item with text still counts, because the Checkpoint section of every template is a checklist by design; an untouched template checklist cannot be told from a real one |
 
@@ -134,3 +133,67 @@ The first row of the table needed no new manifest pattern. The configuration of 
 
 The choice for 3 is a reading of "non-empty" in PC-1, not a new rule: a draft PR opened from `scripts/pr-body` with the other
 sections filled in but the checkpoint untouched is flagged until the first item is ticked.
+
+## TC-1 and TC-2 after the decisions of 2026-11-27
+
+The approver decided two design questions (design section 4 and section 13, Q15 and Q16; acceptance criteria T-9 and T-20). The
+code is in `template_rules.py`; the tests are `TC1SeededAdditions` and `TC2Settings` in `test_template_rules.py`, the cases
+`template-sync-*` and `init-*` under `fixtures/cases/`, and `InitPullRequestTC2` in `template-dev/tests/test_instructions.py`.
+
+### TC-1: a sync may add a new seeded path (option B)
+
+A template-sync PR may add a path that is `owned` or `seeded` in the **head** manifest (the new version is the only place that knows
+its new files). For an added path that is seeded there:
+
+1. it must be **absent from the base commit** (`file_text` at the base SHA is `None`); otherwise the finding is "added seeded path
+   exists on the base commit: `<path>`";
+2. it must be **listed in the PR body**, in the section "Changed files by class". A path counts as listed when it appears in the
+   text of that section as a whole token, in any form (list item, code span, table cell, fenced block). A longer path or name that
+   contains it (`<path>.bak`, `x<path>`, `<path>x`, a different case) does not count; text in an HTML comment or in another section
+   does not count. The finding is "added seeded path is not listed under 'Changed files by class': `<path>`".
+
+Everything else is unchanged: changing, removing or renaming a path that is seeded in the base manifest is a violation ("path is not
+owned in the base manifest"), as are template-only and unclassed added paths (the message is now "added path is neither owned nor
+seeded in the head manifest"), any change to `.template/overrides.toml`, a `.template/state.toml` that is not updated, or one whose
+version differs from the branch version. A sync that changes the owned `.claude/settings.json` passes TC-1, because the base manifest
+says owned (design Q16: the sync writes the tag's file plus the entries of the project's seeded list that the tag's list lacks); TC-1
+does not look inside the file. Findings are capped at `rules.PATH_CAP` with a summary line, and paths are sanitized.
+
+### TC-2: an init PR may append entries to `permissions.deny` (option 1)
+
+An init PR may modify `.claude/settings.json` (status modified, owned in the base manifest) and nothing else outside the seeded files.
+The file is read at the base and at the head SHA with `client.file_text` (the head list `.claude/deny.platform.txt` too), and passes
+only when all of these hold:
+
+- both versions are valid JSON objects without duplicate keys or `NaN`, and `permissions.deny` is a list of strings in each (a file
+  that is missing, not JSON, or has another shape is a violation, never a pass);
+- everything except `permissions.deny` is unchanged. The comparison is of JSON text with sorted keys, so `false`, `0`, `1` and `1.0`
+  are different values, and the formatting of the file does not matter;
+- the base's `permissions.deny` entries are a prefix of the head's, in the same order: an entry removed, changed, reordered, or an
+  entry inserted before an existing one is a violation;
+- every appended entry is a line of the head's `.claude/deny.platform.txt` (one entry per line; blank lines and lines starting with
+  `#` are skipped, as the gate check `deny-list` reads the file; spaces at the ends of a line are ignored) and is not a duplicate of
+  another entry.
+
+Messages: "`.claude/settings.json` changes something other than appended permissions.deny entries", "an existing permissions.deny entry is
+removed, changed, or reordered", "appended deny entry is not listed in `.claude/deny.platform.txt`: `<entry>`", "appended deny entry
+duplicates another entry: `<entry>`", and "`.claude/settings.json` at the head (or of the base commit) is missing / is not valid JSON /
+has no permissions.deny list of strings". Entries are sanitized and limited to 80 characters, at most `rules.PATH_CAP` are named, then
+"and N more entries". The settings file is read from the head only when the PR modifies it; an added, removed or renamed settings file,
+or one that is not owned in the base manifest, gets the old finding ("written path is not seeded"). All other TC-2 rules are unchanged.
+
+The head's list is trusted on purpose: it is a seeded file the init PR writes, and the approver reviews it like any other file of
+that PR. The check guarantees that the file `settings.json` gains no entry that the seeded list does not name, and that nothing is
+loosened. It does not judge whether an entry in the seeded list is a good one.
+
+### The base-run list of `pr-contract.yml` (follow-up of the instructions PR)
+
+The workflow runs the checkers of the base commit against the head files. `operator-contract` and `cr-layout` are added to its list
+now that the base contains them (the instructions PR could not add a checker that did not exist on its own base). Each reads its
+policy from the base configuration (`operator_paths` and `operator_commands`; `docs_roots`), so a PR cannot widen what judges it.
+`claude-md` and `deny-list` are **not** added, following the follow-up spec in `template-dev/docs/instructions.md`, points 6 and 7:
+they have no policy input to read from the base, and the base's copy would compare head files with each other, as the head's copy
+does. The step test (`test_policy_commands.py`) gets the base layout the two checks need (`scripts/pr_contract` and a configuration
+with `operator_paths`, `operator_commands` and `docs_roots`), asserts all five checks run, that a violation under the base
+`operator_paths` fails, that a head which replaces the checker, empties `operator_paths` and adds a violation still fails, the same
+for `cr-layout`, that `operator-contract` fails closed without `operator_paths`, and that a missing checker fails for each id.
