@@ -1,0 +1,14 @@
+schema_version: 1
+github:
+  owner: "example-owner"
+  approver_login: "example-approver"
+  approver_id: 1000001
+  machine_login: "example-machine"
+workflow:
+  design_repos:
+    - "example-owner/other"
+  operator_paths: []
+architectures:
+  - name: "arch-a"
+    runner: "runner-a"
+    runner_private: "runner-a"

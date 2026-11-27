@@ -1,0 +1,4 @@
+exit 1
+pr-contract: PR #10 (type: change)
+FAIL PC-6: workflow change without a non-empty 'Workflow change justification' section
+pr-contract: 1 violation

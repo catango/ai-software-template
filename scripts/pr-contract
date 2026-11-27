@@ -1,0 +1,18 @@
+#!/usr/bin/env python3
+"""pr-contract entry point. Run as: python3 -I scripts/pr-contract --repo OWNER/NAME --pr NUMBER
+
+CI runs this file from a checkout of the base commit, so a PR cannot change the checker that judges it.
+Offline: --fixture DIR reads the pull request from files instead of GitHub (the tests use it).
+"""
+import os
+import sys
+
+sys.dont_write_bytecode = True
+here = os.path.dirname(os.path.realpath(__file__))
+sys.path.insert(0, here)
+sys.path.insert(1, os.path.join(here, "lib"))
+
+from pr_contract.cli import main  # noqa: E402
+
+if __name__ == "__main__":
+    sys.exit(main())

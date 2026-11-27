@@ -1,0 +1,20 @@
+{
+ "number": 10,
+ "title": "A title",
+ "body": "<!-- PR type: implementation. Branch: impl/CR-<n>-<slug>. Rule PC-1 requires every section below, non-empty. -->\nImplements: example-owner/design-records#39\nDesign: example-owner/design-records#40\n\n## Summary\nFilled in for the test.\n\n## Scope\nFilled in for the test.\n\n## Acceptance criteria\nFilled in for the test.\n\n## Validation\nFilled in for the test.\n\n## Architecture evidence\nFilled in for the test.\n\n## Checkpoint\n- [ ] item\n",
+ "state": "open",
+ "draft": true,
+ "merged": false,
+ "user": {
+  "login": "example-machine"
+ },
+ "head": {
+  "ref": "impl/CR-39-the-work",
+  "sha": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+ },
+ "base": {
+  "ref": "main",
+  "sha": "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2"
+ },
+ "changed_files": 1
+}

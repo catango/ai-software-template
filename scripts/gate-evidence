@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+# Runs the quality gate on this host and prints ONE evidence line for the PR body (rule PC-9):
+#   evidence: <arch> | <machine> | <os> | <40-hex head SHA> | clean | <gate command> | exit 0 | <UTC time>
+# The values come from the host itself: git rev-parse HEAD, git status --porcelain, uname -m, /etc/os-release, and the UTC clock.
+# The gate's own output is discarded, so nothing here names a host, an address, a user, or a path; if the gate fails, run it
+# directly to read why. The line is written to stdout only; the exit status is that of the gate (a failing gate prints a line
+# with its exit status, which PC-9 rejects).
+# Which `uname -m` values belong to an architecture name is read from the [architectures] table of toolchain/ci-manifest.toml,
+# so this script names no architecture itself.
+# Usage: scripts/gate-evidence <arch>   (an architecture name of config/project.yaml; it must be this host's architecture)
+set -euo pipefail
+
+usage() {
+  echo "usage: scripts/gate-evidence <arch>   (lower-case letters, digits, underscore, hyphen; must be this host's architecture)" >&2
+  exit 2
+}
+
+[[ $# -eq 1 && $1 =~ ^[a-z0-9][a-z0-9_-]{0,19}$ ]] || usage
+arch=$1
+root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
+
+machine=$(uname -m)
+[[ $machine =~ ^[A-Za-z0-9_.-]{1,32}$ ]] || {
+  echo "gate-evidence: the machine type is not in the expected form" >&2
+  exit 2
+}
+# The architecture must be the one this host is: evidence for one architecture cannot come from another machine type.
+declared=$(python3 -I -B - "$root/toolchain/ci-manifest.toml" "$arch" <<'PY' || true
+import sys
+import tomllib
+
+try:
+    with open(sys.argv[1], "rb") as handle:
+        table = tomllib.load(handle).get("architectures", {})
+    machines = table.get(sys.argv[2])
+except (OSError, tomllib.TOMLDecodeError):
+    machines = None
+if isinstance(machines, list) and all(isinstance(m, str) for m in machines):
+    print("\n".join(machines))
+PY
+)
+if ! grep -qxF -- "$machine" <<<"$declared"; then
+  echo "gate-evidence: the architecture does not match this host (or is not declared in the CI manifest)" >&2
+  exit 2
+fi
+
+os=$(
+  ID='' VERSION_ID=''
+  # shellcheck disable=SC1091
+  . /etc/os-release
+  printf '%s %s' "${ID:-unknown}" "${VERSION_ID:-unknown}"
+)
+[[ $os =~ ^[a-z0-9._-]{1,32}\ [A-Za-z0-9._+~-]{1,32}$ ]] || {
+  echo "gate-evidence: the operating system is not in the expected form" >&2
+  exit 2
+}
+
+cd "$root"
+command_text='./scripts/quality-gate.sh --strict'
+before=$(git status --porcelain)
+rc=0
+./scripts/quality-gate.sh --strict >/dev/null 2>&1 || rc=$?
+after=$(git status --porcelain)
+sha=$(git rev-parse HEAD)
+[[ $sha =~ ^[0-9a-f]{40}$ ]] || {
+  echo "gate-evidence: no commit to report" >&2
+  exit 2
+}
+state=clean
+if [[ -n $before || -n $after ]]; then state=dirty; fi
+now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+printf 'evidence: %s | %s | %s | %s | %s | %s | exit %d | %s\n' "$arch" "$machine" "$os" "$sha" "$state" "$command_text" "$rc" "$now"
+if [[ $rc -ne 0 ]]; then echo "gate-evidence: the quality gate failed (exit $rc)" >&2; fi
+exit "$rc"

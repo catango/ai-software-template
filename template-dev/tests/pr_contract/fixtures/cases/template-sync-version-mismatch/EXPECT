@@ -1,0 +1,4 @@
+exit 1
+pr-contract: PR #10 (type: template-sync)
+FAIL TC-1: the version in .template/state.toml does not equal the branch version
+pr-contract: 1 violation

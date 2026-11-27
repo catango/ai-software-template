@@ -1,0 +1,4 @@
+exit 1
+pr-contract: PR #10 (type: dependabot)
+FAIL PC-7: path not in the dependency allowlist: scripts/x.py
+pr-contract: 1 violation

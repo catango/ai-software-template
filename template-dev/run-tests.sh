@@ -1,17 +1,18 @@
 #!/usr/bin/env bash
 # Run the template's own tests (standard library only, no network).
 #
-#   template-dev/run-tests.sh [manifest|leak|engine|ci|gate|all]
+#   template-dev/run-tests.sh [manifest|leak|engine|ci|gate|skills|all]
 #
 # manifest  T-1 and the generation part of T-2
 # leak      T-15 and the scan part of T-21
 # engine    the install engine and the CI manifest (T-14: both architectures, checksums)
 # ci        the CI matrix, the `not run` summary, and the private-flag condition (T-3, gate part)
+# skills    the fixture tests of scripts/pr-contract and its rules (T-8, T-20); later rows add their script tests here
 # gate      the gate's fixtures (tests/quality-gate/run.sh: one passing and failing case per check; T-19 forbidden-api)
 set -euo pipefail
 
 usage() {
-  echo "usage: ${0##*/} [manifest|leak|engine|ci|gate|all]" >&2
+  echo "usage: ${0##*/} [manifest|leak|engine|ci|gate|skills|all]" >&2
   exit 2
 }
 
@@ -21,6 +22,7 @@ target=${1:-all}
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 export PYTHONDONTWRITEBYTECODE=1
 
+skills() { (cd "$here/tests/pr_contract" && python3 -B -s -m unittest discover -s . -p 'test_*.py'); }
 unit() { (cd "$here/tests" && python3 -B -s -m unittest "$@"); }
 
 case "$target" in
@@ -28,10 +30,12 @@ case "$target" in
   leak) unit test_leak ;;
   ci) unit test_ci ;;
   engine) (cd "$here/tests/toolchain" && python3 -B -s -m unittest discover -s . -p 'test_*.py') ;;
+  skills) skills ;;
   gate) "$here/../tests/quality-gate/run.sh" ;;
   all)
     unit test_manifest test_leak test_ci
     (cd "$here/tests/toolchain" && python3 -B -s -m unittest discover -s . -p 'test_*.py')
+    skills
     "$here/../tests/quality-gate/run.sh"
     ;;
   *) usage ;;

@@ -14,3 +14,12 @@ plan_row = "2 (gate)"
 # Taken: scripts/quality-gate.sh, scripts/lib/gate-lib.sh, the generic checks of scripts/checks/, the install engine
 # (toolchain/toolchain_engine/), the hash-locked requirements of the CI manifest, and the fixtures of the generic checks.
 # What was changed on the way is in template-dev/docs/gate.md.
+
+[[seed]]
+repository = "catango/ai-lab-platform"
+commit = "19b05d83a8b65464852c3ad97e19d47789e49682"
+plan_row = "3 (pr-contract)"
+# Taken: scripts/pr_contract/, scripts/pr-contract, scripts/pr-body, scripts/gate-evidence, the PR templates, the workflow
+# pr-contract.yml, and the tests of these files. The platform did not yet implement ADR-003 as amended, so the keys
+# design_repos and the nested configuration form, qualified references, the types template-sync and init (TC-1, TC-2) and the
+# classification by manifest are new here. What was changed on the way is in template-dev/docs/pr-contract.md.

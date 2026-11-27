@@ -77,9 +77,33 @@ jobs:
         shell: bash
         run: template-dev/run-tests.sh ci
 
+  # The fixture tests of scripts/pr-contract (T-8, T-20 rule part), and the gate-evidence script. They run offline: no GitHub call.
+  # Later rows add the tests of the other Skill scripts to this job.
+  skills:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # yq is optional for these tests (the reader of the configuration is compared with it when it is present), and the
+      # policy-command tests need it: it comes from the CI manifest, checksum-verified.
+      - name: Install yq
+        shell: bash
+        run: |
+          python3 -I toolchain/install install --profile gate --only yq --prefix "$RUNNER_TEMP/tools"
+          echo "$RUNNER_TEMP/tools/bin" >> "$GITHUB_PATH"
+
+      - name: Run the skills tests
+        shell: bash
+        run: template-dev/run-tests.sh skills
+
   # The one required check of this workflow: it needs every other job, always runs, and fails unless each succeeded.
   template-ci:
-    needs: [manifest, leak, engine, ci]
+    needs: [manifest, leak, engine, ci, skills]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5

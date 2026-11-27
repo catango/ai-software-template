@@ -1,0 +1,26 @@
+[
+ {
+  "filename": "template-dev/tests/a.py",
+  "status": "removed"
+ },
+ {
+  "filename": ".github/workflows/template-ci.yml",
+  "status": "removed"
+ },
+ {
+  "filename": "README.md",
+  "status": "modified"
+ },
+ {
+  "filename": "config/project.yaml",
+  "status": "modified"
+ },
+ {
+  "filename": ".template/state.toml",
+  "status": "added"
+ },
+ {
+  "filename": "scripts/x.py",
+  "status": "removed"
+ }
+]

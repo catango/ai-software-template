@@ -20,6 +20,11 @@ PATTERNS = ROOT / "template-dev" / "leak" / "patterns.toml"
 # it has artifacts for (the install engine itself names none).
 ARCH_DATA_FILES = frozenset({"config/project.yaml", "toolchain/ci-manifest.toml"})
 
+# The template's own seeded configuration lists the repository that holds its design records under `design_repos` (rule PC-3
+# needs it to accept the template's own implementation PRs). That one pattern is skipped for that one file, in the payload scan
+# only: a generated tree is written from the configuration it was given and gets no exemption.
+PAYLOAD_NAME_EXEMPT = {"config/project.yaml": frozenset({"platform-repository-name"})}
+
 
 def dotted(*parts):
     return ".".join(parts)
@@ -114,6 +119,24 @@ class PatternTests(TempDirTestCase):
         again = self.scan_text(SAMPLES["email"], rel="config/project.yaml", arch_exempt=ARCH_DATA_FILES)
         self.assertEqual([f.pattern for f in again], ["email"])
 
+    def test_a_name_exemption_covers_one_pattern_in_one_file(self):
+        exempt = {"config/project.yaml": frozenset({"platform-repository-name"})}
+        name = SAMPLES["platform-repository-name"]
+        self.assertEqual(self.scan_text(name, rel="config/project.yaml"), self.scan_text(name, rel="config/project.yaml")[:1])
+        self.assertEqual(self.scan_text_with(name, "config/project.yaml", exempt), [])
+        self.assertTrue(self.scan_text_with(name, "docs/x.md", exempt))
+        # another pattern still applies in the exempt file
+        again = self.scan_text_with(SAMPLES["platform-record-number"], "config/project.yaml", exempt)
+        self.assertEqual([f.pattern for f in again], ["platform-record-number"])
+        # and a generated tree is scanned without any exemption
+        self.assertTrue(self.scan_text_with(name, "config/project.yaml", None, scope="generated"))
+
+    def scan_text_with(self, text, rel, name_exempt, scope="both"):
+        root = self.make_dir()
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_text(text + "\n")
+        return leak.scan(root, [rel], self.patterns, scope=scope, name_exempt=name_exempt)
+
     def test_binary_files_are_skipped(self):
         root = self.make_dir()
         (root / "blob.bin").write_bytes(b"\0\1\2" + SAMPLES["email"].encode())
@@ -144,7 +167,8 @@ class PayloadAndGeneratedTreeTests(TempDirTestCase):
         manifest = tm.load_manifest(ROOT / ".template" / "manifest.toml")
         files = payload_files(manifest, helpers.tracked_paths())
         self.assertGreater(len(files), 3)
-        findings = leak.scan(ROOT, files, self.patterns, scope="both", arch_exempt=ARCH_DATA_FILES)
+        findings = leak.scan(ROOT, files, self.patterns, scope="both", arch_exempt=ARCH_DATA_FILES,
+                             name_exempt=PAYLOAD_NAME_EXEMPT)
         self.assertEqual([str(f) for f in findings], [])
 
     def test_template_only_files_are_not_scanned(self):

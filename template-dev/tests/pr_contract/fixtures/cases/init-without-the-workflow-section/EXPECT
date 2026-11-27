@@ -1,0 +1,5 @@
+exit 1
+pr-contract: PR #10 (type: init)
+FAIL PC-1: section missing: Workflow change justification
+FAIL PC-6: workflow change without a non-empty 'Workflow change justification' section
+pr-contract: 2 violations

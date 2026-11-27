@@ -75,8 +75,8 @@ catalogue lists them as `planned`.
    upstream tag.
 4. **The leak scan exempts `toolchain/ci-manifest.toml`** for architecture names, like `config/project.yaml`: it is data that
    declares the architectures it has artifacts for.
-5. **`config/project.yaml` of the template** holds only `architectures` for now. The later rows add the identity keys when
-   `pr-contract` needs them.
+5. **`config/project.yaml` of the template** held only `architectures` after row 2. Row 3 added the identity keys and the two
+   `workflow` lists (see `pr-contract.md`).
 6. **An architecture not declared in the CI manifest** (a configuration with another name) fails the plan job with a clear
    message. A repository that needs one adds artifacts for it to the CI manifest as an override. The fixture configurations of
    `template-dev/` use declared names, and a test plans the CI matrix of a tree generated from each.

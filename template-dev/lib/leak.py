@@ -62,13 +62,16 @@ def load_patterns(path):
     return patterns
 
 
-def scan(root, paths, patterns, scope, arch_exempt=frozenset()):
+def scan(root, paths, patterns, scope, arch_exempt=frozenset(), name_exempt=None):
     """Scan `paths` (relative to `root`).
 
     scope "both" applies only the patterns of scope "both" (a payload scan); scope
     "generated" applies every pattern (a generated-tree scan). Files in `arch_exempt` are
-    skipped for the group "arch" only: they carry configuration data by design.
+    skipped for the group "arch" only: they carry configuration data by design. `name_exempt` maps a path to the pattern names
+    that are skipped for that file alone (the seeded configuration of the template itself names the repository of its design
+    records); every other pattern still applies to it.
     """
+    name_exempt = name_exempt or {}
     active = [p for p in patterns if scope == "generated" or p.scope == "both"]
     findings = []
     for rel in paths:
@@ -81,6 +84,8 @@ def scan(root, paths, patterns, scope, arch_exempt=frozenset()):
         for number, line in enumerate(lines, start=1):
             for pattern in active:
                 if pattern.group == "arch" and rel in arch_exempt:
+                    continue
+                if pattern.name in name_exempt.get(rel, ()):
                     continue
                 if pattern.regex.search(line):
                     findings.append(Finding(rel, number, pattern.name))
