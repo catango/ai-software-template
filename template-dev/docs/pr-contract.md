@@ -149,12 +149,15 @@ its new files). For an added path that is seeded there:
    exists on the base commit: `<path>`";
 2. it must be **listed in the PR body**, in the section "Changed files by class". A path counts as listed when it appears in the
    text of that section as a whole token, in any form (list item, code span, table cell, fenced block). A longer path or name that
-   contains it (`<path>.bak`, `x<path>`, `<path>x`, a different case) does not count; text in an HTML comment or in another section
-   does not count. The finding is "added seeded path is not listed under 'Changed files by class': `<path>`".
+   contains it (`<path>.bak`, `x<path>`, `<path>x`, a different case) does not count; the characters next to the path decide: a path
+   character (`/`, `.`, `-`, `_`), or a letter, digit or combining mark of any script (`é<path>`, `<path>é`), makes it part of
+   something else, while a space or punctuation of any script (`<path>。`, `「<path>」`) does not. Text in an HTML comment or in
+   another section does not count. The finding is "added seeded path is not listed under 'Changed files by class': `<path>`".
 
 Everything else is unchanged: changing, removing or renaming a path that is seeded in the base manifest is a violation ("path is not
 owned in the base manifest"), as are template-only and unclassed added paths (the message is now "added path is neither owned nor
-seeded in the head manifest"), any change to `.template/overrides.toml`, a `.template/state.toml` that is not updated, or one whose
+seeded in the head manifest"; a path that matches more than one class there is named "added path has more than one class in the head
+manifest"), any change to `.template/overrides.toml`, a `.template/state.toml` that is not updated, or one whose
 version differs from the branch version. A sync that changes the owned `.claude/settings.json` passes TC-1, because the base manifest
 says owned (design Q16: the sync writes the tag's file plus the entries of the project's seeded list that the tag's list lacks); TC-1
 does not look inside the file. Findings are capped at `rules.PATH_CAP` with a summary line, and paths are sanitized.
@@ -172,7 +175,8 @@ only when all of these hold:
 - the base's `permissions.deny` entries are a prefix of the head's, in the same order: an entry removed, changed, reordered, or an
   entry inserted before an existing one is a violation;
 - every appended entry is a line of the head's `.claude/deny.platform.txt` (one entry per line; blank lines and lines starting with
-  `#` are skipped, as the gate check `deny-list` reads the file; spaces at the ends of a line are ignored) and is not a duplicate of
+  `#` are skipped; spaces at the ends of a line are ignored; lines are split with `str.splitlines()`, as `initialize-project` splits
+  them when it appends the entries, so a line break such as U+2028 or a form feed also separates two entries) and is not a duplicate of
   another entry.
 
 Messages: "`.claude/settings.json` changes something other than appended permissions.deny entries", "an existing permissions.deny entry is
@@ -197,3 +201,8 @@ does. The step test (`test_policy_commands.py`) gets the base layout the two che
 with `operator_paths`, `operator_commands` and `docs_roots`), asserts all five checks run, that a violation under the base
 `operator_paths` fails, that a head which replaces the checker, empties `operator_paths` and adds a violation still fails, the same
 for `cr-layout`, that `operator-contract` fails closed without `operator_paths`, and that a missing checker fails for each id.
+
+The gate check `deny-list` (`scripts/checks/deny_list.py`) still splits the list on `\n` only. It was left alone on purpose: a preset
+line with an exotic break (for example two entries separated by a form feed) is read there as one entry that is not in
+`settings.json`, so the gate fails closed and names the line, instead of passing. Aligning it is a change to another owned file and
+its fixtures, and is not part of this PR.
