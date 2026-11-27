@@ -7,6 +7,8 @@ or ADR instance from the template, and no unfilled placeholder (the placeholder 
 the `leak` test).
 """
 
+import ast
+import re
 import tomllib
 import unittest
 from pathlib import Path
@@ -362,12 +364,36 @@ class GenerationTests(TempDirTestCase):
         self.assertNotIn('"required_status_checks"', result.stdout)
 
     def test_initialize_project_makes_no_github_or_network_call(self):
-        """Static check (T-20, T-13): no label, ruleset, repository, collaborator, setting."""
-        source = (ROOT / "scripts" / "initialize-project").read_text()
-        for forbidden in ("subprocess", "socket", "urllib", "http.client", "requests",
-                          "os.system", "os.popen", "shell=True", "gh api", "gh repo",
-                          "gh label", "gh pr"):
-            self.assertNotIn(forbidden, source)
+        """Static check (T-20, T-13): no label, ruleset, repository, collaborator, setting.
+
+        Reads the syntax tree: the script and its two libraries import only local-file
+        modules, start no process, and name no command of the GitHub client.
+        """
+        allowed = {"argparse", "hashlib", "json", "os", "re", "sys", "tomllib", "pathlib",
+                   "dataclasses", "template_config", "template_manifest"}
+        for rel in ("scripts/initialize-project", "scripts/lib/template_config.py",
+                    "scripts/lib/template_manifest.py"):
+            tree = ast.parse((ROOT / rel).read_text(), filename=rel)
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    names = [a.name.split(".")[0] for a in node.names]
+                elif isinstance(node, ast.ImportFrom):
+                    names = [(node.module or "").split(".")[0]]
+                else:
+                    names = []
+                for name in names:
+                    self.assertIn(name, allowed, f"{rel} imports {name}")
+                if isinstance(node, ast.Call):
+                    func = node.func
+                    called = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
+                    self.assertFalse(
+                        called in ("system", "popen", "Popen", "run", "call", "exec", "eval")
+                        or called.startswith(("spawn", "exec")), f"{rel} calls {called}")
+                    self.assertNotIn("shell", [k.arg for k in node.keywords])
+                if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                    self.assertIsNone(
+                        re.search(r"\bgh (api|repo|label|pr|ruleset|secret|variable)\b", node.value),
+                        f"{rel} names a GitHub client command")
 
     def test_initialize_project_only_writes_inside_the_root(self):
         tree, result = self.generate("second")

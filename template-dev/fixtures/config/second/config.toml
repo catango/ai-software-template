@@ -3,6 +3,11 @@
 # a design repository, preset files, and post-init actions.
 schema_version = 1
 
+post_init_actions = [
+  "Add the machine account as a collaborator.",
+  "Apply the printed rulesets before the init pull request merges.",
+]
+
 [project]
 name = "other-service"
 
@@ -33,8 +38,3 @@ runner_private = ""
 [preset]
 platform_doc = "PLATFORM.md"
 deny_platform = "deny.platform.txt"
-
-post_init_actions = [
-  "Add the machine account as a collaborator.",
-  "Apply the printed rulesets before the init pull request merges.",
-]
