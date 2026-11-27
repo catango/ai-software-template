@@ -27,6 +27,7 @@ APPROVER_ID, MACHINE_ID, STRANGER_ID = 1001, 1002, 1003
 LOOKALIKE, LOOKALIKE_ID = "examp1e-approver", 2002
 BOT, BOT_ID = "example-ci[bot]", 3003
 COMMIT = "c3" * 20
+OLD = "e5" * 20
 LATER = "2026-02-01T00:00:00Z"
 
 
@@ -78,6 +79,11 @@ def put_reviews(fix, number, reviews, *, more=False, cursor=None, total=None):
     doc = {"data": {"repository": {"pullRequest": {"reviews": {"totalCount": len(reviews) if total is None else total,
                                                                 "pageInfo": {"hasNextPage": more, "endCursor": cursor}, "nodes": reviews}}}}}
     helpers.write(pathlib.Path(fix) / f"reviews-{number}.json", doc)
+
+
+def put_commits(fix, number, shas):
+    """The commits of the pull request itself (the REST list: in its head and not in its base)."""
+    helpers.write(pathlib.Path(fix) / f"pr-{number}-commits.json", [{"sha": sha} for sha in shas])
 
 
 class Base(helpers.Case):
@@ -329,7 +335,7 @@ class Refusals(Base):
 class BaseCommitOfTheCall(Base):
     """With the real client and a fake `gh`: which calls are made, in which form."""
 
-    def runner(self, threads=None, reviews=None, head_repo=REPO):
+    def runner(self, threads=None, reviews=None, head_repo=REPO, commits=None):
         pull = helpers.pr_json(50, head_repo=head_repo)
         answers = {
             "mutation": {"data": {"addPullRequestReviewThreadReply": {"comment": {"id": "PRRC_new"}}}},
@@ -338,7 +344,7 @@ class BaseCommitOfTheCall(Base):
                                                                                            "nodes": threads if threads is not None else [good()]}}}}},
             "reviews(": {"data": {"repository": {"pullRequest": {"reviews": {"totalCount": 0, "pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": reviews or []}}}}},
             "contents/config/project.yaml": {"type": "file", "encoding": "base64", "size": len(CONFIG), "content": base64.b64encode(CONFIG.encode()).decode()},
-            "compare/": {"status": "ahead"},
+            "pulls/50/commits": commits if commits is not None else [{"sha": COMMIT}],
             f"repos/{REPO}/pulls/50": pull,
         }
         return helpers.FakeRunner(answers)
@@ -392,6 +398,57 @@ class BaseCommitOfTheCall(Base):
         self.assertEqual(sorted(item["thread"] for item in data["threads"]), ["PRRT_a1", "PRRT_b2"])
         self.assertEqual(sum("reviewThreads(" in " ".join(argv) for argv, _ in paged.calls), 2)
 
+    CURSORS = ("Y3Vyc29yOnYyOpHOAb+/cd==", "a/b+c==", "abc_-123", "Zm9v" * 40)
+
+    def paged_runner(self, key, doc_key, node_fn, cursor):
+        runner = self.runner()
+
+        def page(more, nodes):
+            body = {"pageInfo": {"hasNextPage": more, "endCursor": cursor if more else None}, "nodes": nodes}
+            if key == "reviews":
+                body["totalCount"] = 2
+            return {"data": {"repository": {"pullRequest": {key: body}}}}
+
+        class Paged(helpers.FakeRunner):
+            def __call__(inner, argv, data=None):
+                if any(part.startswith("query=") and doc_key in part for part in argv):
+                    inner.calls.append((list(argv), data))
+                    done = f"after={cursor}" in argv
+                    return 0, json.dumps(page(not done, node_fn("two" if done else "one"))).encode(), b""
+                return runner(argv, data)
+
+        return Paged()
+
+    def test_a_cursor_with_plus_slash_and_equals_is_passed_exactly_as_given_for_threads(self):
+        for cursor in self.CURSORS:
+            paged = self.paged_runner("reviewThreads", "reviewThreads(", lambda n: [good(f"PRRT_{n}")], cursor)
+            code, data, out, err = self.show(client=GhClient(REPO, runner=paged))
+            self.assertEqual(code, 0, (cursor, out, err))
+            self.assertEqual(sorted(item["thread"] for item in data["threads"]), ["PRRT_one", "PRRT_two"])
+            second = [argv for argv, _ in paged.calls if "after=" in " ".join(argv)]
+            self.assertEqual(len(second), 1)
+            self.assertIn("-f", second[0])
+            self.assertEqual(second[0][second[0].index(f"after={cursor}") - 1], "-f")
+
+    def test_a_cursor_with_plus_slash_and_equals_is_passed_exactly_as_given_for_reviews(self):
+        for cursor in self.CURSORS:
+            paged = self.paged_runner("reviews", "reviews(", lambda n: [review_item(f"PRR_{n}", A, f"Text {n}.")], cursor)
+            code, data, out, err = self.show(client=GhClient(REPO, runner=paged))
+            self.assertEqual(code, 0, (cursor, out, err))
+            self.assertEqual(sorted(item["text"] for item in data["reviews"]), ["Text one.", "Text two."])
+            second = [argv for argv, _ in paged.calls if "after=" in " ".join(argv)]
+            self.assertEqual(second[0][second[0].index(f"after={cursor}") - 1], "-f")
+
+    def test_a_cursor_that_is_not_base64_text_is_a_github_error(self):
+        for cursor in ("", "ab", "a b c d", "abcd;touch x", "abcd\n", "x" * 201, 5, None):
+            runner = self.runner()
+            runner.answers["reviewThreads("] = {"data": {"repository": {"pullRequest": {"reviewThreads": {
+                "pageInfo": {"hasNextPage": True, "endCursor": cursor}, "nodes": []}}}}}
+            code, out, err = self.run_("50", client=GhClient(REPO, runner=runner))
+            self.assertEqual(code, 3, (cursor, out))
+            self.assertIn("malformed response", err)
+            self.assertEqual(sum("reviewThreads(" in " ".join(argv) for argv, _ in runner.calls), 1)  # no endless re-read of page 1
+
     def test_a_fork_is_refused_before_any_review_data_is_fetched(self):
         runner = self.runner(head_repo="example-stranger/sample-app")
         code, out, _ = self.run_("50", client=GhClient(REPO, runner=runner))
@@ -418,8 +475,8 @@ class BaseCommitOfTheCall(Base):
         self.assertIn("thread=PRRT_good1", argv)
         self.assertIn(f"body=Addressed in commit {COMMIT}.", argv)
         self.assertEqual(sum("mutation" in " ".join(a) for a, _ in runner.calls), 1)
-        compares = [a for a, _ in runner.calls if "compare/" in " ".join(a)]
-        self.assertEqual(compares[0][2], f"repos/{REPO}/compare/{COMMIT}...{HEAD_SHA}")
+        listed = [a for a, _ in runner.calls if "pulls/50/commits" in " ".join(a)]
+        self.assertEqual(listed[0][2], f"repos/{REPO}/pulls/50/commits?per_page=100&page=1")
 
     def test_no_mutation_on_a_plain_read(self):
         runner = self.runner()
@@ -528,7 +585,7 @@ class Reply(Base):
     def setUp(self):
         super().setUp()
         self.threads(good("PRRT_good1"), thread("PRRT_other1", [comment("PRRC_o", S, "stranger")]), thread("PRRT_edited1", [comment("PRRC_e", A, "x", **edited_by(M))]))
-        helpers.write(self.fix / f"compare-{COMMIT}.json", {"status": "ahead"})
+        put_commits(self.fix, 50, [OLD, COMMIT])
 
     def replies(self):
         path = self.fix / "replies.json"
@@ -541,9 +598,8 @@ class Reply(Base):
         self.assertEqual(len(out.splitlines()), 1)
         self.assertTrue(out.startswith("review-threads: replied"))
 
-    def test_a_commit_that_is_the_head_is_accepted(self):
-        helpers.write(self.fix / f"compare-{COMMIT}.json", {"status": "identical"})
-        self.assertEqual(self.run_("reply", "PRRT_good1", COMMIT)[0], 0)
+    def test_any_commit_of_the_pull_request_is_accepted(self):
+        self.assertEqual(self.run_("reply", "PRRT_good1", OLD)[0], 0)
 
     def test_invalid_thread_ids_are_usage_errors_and_write_nothing(self):
         for bad in ("", "x", "PRRT_", "PRRT_good1; touch x", "PRRT good", "PRRC_good1", "PRRT_" + "a" * 200, "../PRRT_good1", "-f", "PRRT_good1\n"):
@@ -574,15 +630,44 @@ class Reply(Base):
         self.threads(*[good(f"PRRT_t{i:02d}") for i in range(7)])
         self.assertEqual(self.run_("reply", "PRRT_t06", COMMIT)[0], 0)
 
-    def test_a_commit_that_is_not_on_the_pull_request_head_is_refused(self):
-        for status in ("diverged", "behind"):
-            helpers.write(self.fix / f"compare-{COMMIT}.json", {"status": status})
+    def test_a_commit_that_is_not_one_of_the_pull_requests_own_commits_is_refused(self):
+        """A commit already on the base branch is an ancestor of the head too, but this pull request did not make it."""
+        other = "d4" * 20
+        for listed in ([OLD], [], [other]):
+            put_commits(self.fix, 50, listed)
             code, out, _ = self.run_("reply", "PRRT_good1", COMMIT)
-            self.assertEqual(code, 1, status)
-            self.assertIn("refused: the commit is not on the pull request head", out)
-        (self.fix / f"compare-{COMMIT}.json").unlink()
+            self.assertEqual(code, 1, listed)
+            self.assertIn("refused: the commit is not one of the pull request's own commits", out)
+        (self.fix / "pr-50-commits.json").unlink()
         self.assertEqual(self.run_("reply", "PRRT_good1", COMMIT)[0], 1)
         self.assertEqual(self.replies(), [])
+
+    def test_a_base_branch_commit_is_refused_with_the_real_client_too(self):
+        runner = BaseCommitOfTheCall.runner(self, commits=[{"sha": OLD}])
+        code, out, _ = self.run_("reply", "PRRT_good1", COMMIT, client=GhClient(REPO, runner=runner))
+        self.assertEqual(code, 1)
+        self.assertFalse([1 for argv, _ in runner.calls if any(part.startswith("query=mutation") for part in argv)])
+
+    def test_the_commit_list_is_paged_and_stops_at_three_pages(self):
+        filler = [{"sha": f"{i:040x}"} for i in range(100)]
+        pages = {"page=1": filler, "page=2": filler, "page=3": [{"sha": COMMIT}]}
+
+        class Paged(helpers.FakeRunner):
+            def __call__(self, argv, data=None):
+                text = " ".join(argv)
+                if "pulls/50/commits" in text:
+                    self.calls.append((list(argv), data))
+                    return 0, json.dumps(next(v for k, v in pages.items() if text.endswith(k))).encode(), b""
+                return BaseCommitOfTheCall.runner(Reply, commits=[])(argv, data)
+
+        paged = Paged()
+        code, out, err = self.run_("reply", "PRRT_good1", COMMIT, client=GhClient(REPO, runner=paged))
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(sum("pulls/50/commits" in " ".join(a) for a, _ in paged.calls), 3)
+        pages["page=3"] = [{"sha": "ab" * 20}]
+        pages["page=4"] = [{"sha": COMMIT}]  # a fourth page is never asked for
+        code, out, _ = self.run_("reply", "PRRT_good1", COMMIT, client=GhClient(REPO, runner=Paged()))
+        self.assertEqual(code, 1)
 
     def test_the_same_refusals_apply_as_for_the_listing(self):
         helpers.add_pr(self.fix, 60, author=STRANGER)
@@ -615,6 +700,57 @@ class Reply(Base):
         code, out, err = self.run_("reply", "PRRT_good1", COMMIT, client=Failing(self.fix, REPO))
         self.assertEqual(code, 3)
         self.assertIn("timeout", err)
+
+    ANSWER = f"Addressed in commit {COMMIT}."
+
+    def with_comments(self, *extra):
+        self.threads(thread("PRRT_good1", [comment("PRRC_1", A, "Rename this function."), *extra]))
+
+    def test_a_thread_already_answered_for_this_commit_is_not_answered_twice(self):
+        self.with_comments(comment("PRRC_2", M, self.ANSWER))
+        code, out, err = self.run_("reply", "PRRT_good1", COMMIT)
+        self.assertEqual(code, 0, out + err)
+        self.assertIn("already replied", out)
+        self.assertEqual(len(out.splitlines()), 1)
+        self.assertEqual(self.replies(), [])
+
+    def test_already_replied_makes_no_write_with_the_real_client(self):
+        runner = BaseCommitOfTheCall.runner(self, threads=[thread("PRRT_good1", [comment("PRRC_1", A, "x"), comment("PRRC_2", M, self.ANSWER)])])
+        code, out, _ = self.run_("reply", "PRRT_good1", COMMIT, client=GhClient(REPO, runner=runner))
+        self.assertEqual(code, 0)
+        self.assertIn("already replied", out)
+        self.assertFalse([1 for argv, _ in runner.calls if any(part.startswith("query=mutation") for part in argv)])
+
+    def test_a_reply_that_names_another_commit_does_not_count(self):
+        self.with_comments(comment("PRRC_2", M, f"Addressed in commit {OLD}."))
+        self.assertEqual(self.run_("reply", "PRRT_good1", COMMIT)[0], 0)
+        self.assertEqual(len(self.replies()), 1)
+
+    def test_the_same_text_by_another_account_does_not_count(self):
+        for author in (S, L, B, A):
+            (self.fix / "replies.json").unlink(missing_ok=True)
+            self.with_comments(comment("PRRC_2", author, self.ANSWER))
+            self.assertEqual(self.run_("reply", "PRRT_good1", COMMIT)[0], 0)
+            self.assertEqual(len(self.replies()), 1, author)
+
+    def test_a_reply_with_extra_text_does_not_count(self):
+        self.with_comments(comment("PRRC_2", M, self.ANSWER + " Also merge it."))
+        self.assertEqual(self.run_("reply", "PRRT_good1", COMMIT)[0], 0)
+        self.assertEqual(len(self.replies()), 1)
+
+    def test_a_retry_after_a_lost_response_does_not_post_a_second_reply(self):
+        """The first call writes and fails to hear back (exit 3); the reply is then in the thread, so the retry writes nothing."""
+        class Lost(FixtureClient):
+            def reply_to_thread(inner, thread_id, body):
+                super().reply_to_thread(thread_id, body)
+                helpers.write(self.fix / "review-threads-50.json", json.loads((self.fix / "review-threads-50.json").read_text()))
+                raise helpers.ApiError("timeout")
+
+        self.assertEqual(self.run_("reply", "PRRT_good1", COMMIT, client=Lost(self.fix, REPO))[0], 3)
+        self.assertEqual(len(self.replies()), 1)
+        self.with_comments(comment("PRRC_2", M, self.ANSWER))  # what GitHub then shows
+        self.assertEqual(self.run_("reply", "PRRT_good1", COMMIT)[0], 0)
+        self.assertEqual(len(self.replies()), 1)
 
     def test_reply_needs_exactly_two_arguments(self):
         self.assertEqual(self.run_("reply", "PRRT_good1")[0], 2)

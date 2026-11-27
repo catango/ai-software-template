@@ -16,7 +16,7 @@ Both clients have the same interface. Writes act on the client's own repository 
     labels.json                the labels of the repository: [{"name": "..."}]
     review-threads-<n>.json    the GraphQL answer for the review threads of pull request <n> (`{"data": {"repository": ...}}`, one page)
     reviews-<n>.json           the GraphQL answer for its reviews
-    compare-<sha>.json         {"status": "ahead"} for a commit that is on the head of a pull request (a missing file: it is not)
+    pr-<n>-commits.json        the commits of pull request <n> itself: [{"sha": "..."}] (a missing file: none)
     check-runs-<sha>.json      {"check_runs": [...]}        annotations-<id>.json   [...]
     base/config/project.yaml   the configuration of the base commit, or of the default branch for an issue
     repos/<owner>/<name>/      the same files for another repository (without that directory it is not readable)
@@ -42,6 +42,8 @@ _NODE_ID = re.compile(r"[A-Za-z0-9_=-]{4,100}")
 _LABEL = re.compile(r"[A-Za-z0-9 :._-]{1,50}")
 _SHA = re.compile(r"[0-9a-f]{40}")
 _THREAD_ID = re.compile(r"PRRT_[A-Za-z0-9_-]{1,90}")
+# A GraphQL cursor is base64 of a binary payload (so `+`, `/`, `=` occur); it reaches `gh` as the value of one `-f` argument, never a shell.
+_CURSOR = re.compile(r"[A-Za-z0-9+/=_-]{4,200}")
 _ENV_KEEP = base_api._ENV_KEEP
 
 
@@ -204,7 +206,9 @@ def _connection(page, key):
     if not isinstance(nodes, list) or not isinstance(info, dict) or not isinstance(info.get("hasNextPage"), bool):
         raise ApiError("malformed response")
     cursor = info.get("endCursor")
-    if cursor is not None and (not isinstance(cursor, str) or not _NODE_ID.fullmatch(cursor)):
+    if cursor is not None and (not isinstance(cursor, str) or not _CURSOR.fullmatch(cursor)):
+        raise ApiError("malformed response")
+    if info["hasNextPage"] and cursor is None:
         raise ApiError("malformed response")
     total = connection.get("totalCount")
     if total is not None and (not isinstance(total, int) or isinstance(total, bool)):
@@ -409,16 +413,21 @@ class GhClient:
         repository = _object(request.get("repository"))
         return _field(repository, "nameWithOwner", str), _field(request, "number", int)
 
-    def is_ancestor(self, commit, head_sha):
-        """True when `commit` is the head commit or one of its ancestors (the compare status of `commit...head` is `identical` or `ahead`)."""
-        if not _SHA.fullmatch(commit) or not _SHA.fullmatch(head_sha):
+    def commit_in_pull(self, number, commit):
+        """True when `commit` is one of the commits of the pull request itself (in its head, not in its base): the REST list of its
+        commits, up to three pages of 100. A commit that is already on the base branch is not among them."""
+        base_api.check_number(number)
+        if not _SHA.fullmatch(commit):
             raise InputError("invalid commit")
-        try:
-            basehead = f"{commit}...{head_sha}"
-            data = _object(self._call(["gh", "api", f"repos/{self.repo}/compare/{basehead}"]))
-        except NotFound:
-            return False
-        return data.get("status") in ("identical", "ahead")
+        for page in range(1, 4):
+            items = self._call(["gh", "api", f"repos/{self.repo}/pulls/{number}/commits?per_page=100&page={page}"])
+            if not isinstance(items, list):
+                raise ApiError("malformed response")
+            if any(isinstance(item, dict) and item.get("sha") == commit for item in items):
+                return True
+            if len(items) < 100:
+                return False
+        return False
 
     def check_runs(self, sha):
         if not _SHA.fullmatch(sha):
@@ -583,14 +592,17 @@ class FixtureClient:
                 return self.repo, int(number)
         return None
 
-    def is_ancestor(self, commit, head_sha):
-        if not _SHA.fullmatch(commit) or not _SHA.fullmatch(head_sha):
+    def commit_in_pull(self, number, commit):
+        base_api.check_number(number)
+        if not _SHA.fullmatch(commit):
             raise InputError("invalid commit")
         try:
-            data = _object(self._load(self._dir, f"compare-{commit}.json"))
+            items = self._load(self._dir, f"pr-{number}-commits.json")
         except NotFound:
             return False
-        return data.get("status") in ("identical", "ahead")
+        if not isinstance(items, list):
+            raise ApiError("malformed response")
+        return any(isinstance(item, dict) and item.get("sha") == commit for item in items)
 
     def check_runs(self, sha):
         if not _SHA.fullmatch(sha):

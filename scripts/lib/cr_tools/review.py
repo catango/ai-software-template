@@ -18,8 +18,9 @@ line and fetched with `--page`. The approver's text is sanitized (control, bidir
 shortened.
 
 `reply` posts one comment on a thread that the listing would print, saying which commit addressed it (a fixed text with the
-40-character SHA, which must be on the head of the pull request). It is the one write of this script. The script resolves nothing,
-submits no review, and merges nothing: the approver does that. Exit codes: 0 done, 1 refused, 2 usage, 3 GitHub error. With
+40-character SHA, which must be one of the pull request's own commits, not one already on the base branch; when the thread already
+holds that exact reply by the machine account, nothing is posted and the run still ends 0, so a retry after a lost answer is safe).
+It is the one write of this script. The script resolves nothing, submits no review, and merges nothing: the approver does that. Exit codes: 0 done, 1 refused, 2 usage, 3 GitHub error. With
 --fixture DIR nothing is fetched (see client.py).
 """
 import argparse
@@ -134,11 +135,12 @@ def judged_pull(client, number):
     return pull, identities
 
 
-def collect(client, number, identities):
-    """(threads, reviews, excluded): the kept items in listing order (unresolved threads, resolved threads, review summaries) and the counts."""
+def collect(client, number, identities, fetched=None):
+    """(threads, reviews, excluded): the kept items in listing order (unresolved threads, resolved threads, review summaries) and the counts.
+    `fetched` is the list of threads when the caller has read it already."""
     excluded = dict.fromkeys(REASONS, 0)
     unresolved, resolved = [], []
-    for thread in client.review_threads(number):
+    for thread in client.review_threads(number) if fetched is None else fetched:
         texts = []
         for item in thread["comments"]:
             reason = verdict(item, identities)
@@ -211,12 +213,19 @@ def cmd_reply(client, args):
     if located is None or located[0].lower() != client.repo.lower():
         raise Refused("not a review thread of this repository")
     pull, identities = judged_pull(client, located[1])
-    threads, _, _ = collect(client, located[1], identities)
+    fetched = client.review_threads(located[1])
+    threads, _, _ = collect(client, located[1], identities, fetched)
     if args.thread not in {item["thread"] for item in threads}:
         raise Refused("not a thread that review-threads prints")
-    if not client.is_ancestor(args.commit, pull["head_sha"]):
-        raise Refused("the commit is not on the pull request head")
-    client.reply_to_thread(args.thread, f"Addressed in commit {args.commit}.")
+    if not client.commit_in_pull(located[1], args.commit):
+        raise Refused("the commit is not one of the pull request's own commits")
+    text = f"Addressed in commit {args.commit}."
+    thread = next(item for item in fetched if item["id"] == args.thread)
+    if any(item["body"] == text and item["author"] is not None and item["author"]["type"] == "User" and identities.is_machine(item["author"]["login"])
+           for item in thread["comments"]):
+        print(common.summary(SCRIPT, f"already replied on a thread of #{pull['number']}: commit {args.commit[:7]}"))
+        return 0
+    client.reply_to_thread(args.thread, text)
     print(common.summary(SCRIPT, f"replied on a thread of #{pull['number']}: commit {args.commit[:7]}"))
     return 0
 
