@@ -17,8 +17,8 @@ trap 'rm -rf "$WORK"' EXIT
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
 export GIT_AUTHOR_NAME=test GIT_AUTHOR_EMAIL=noreply GIT_COMMITTER_NAME=test GIT_COMMITTER_EMAIL=noreply
 export GATE_SELFTEST=1
-# The policy base commit  is set by the tests that need it, never inherited.
-unset GATE_BASE_REF
+# The policy base commit (and the head branch name that owned-drift reads) is set by the tests that need it, never inherited.
+unset GATE_BASE_REF GATE_HEAD_REF GITHUB_HEAD_REF
 
 PASSED=0
 FAILED=0
@@ -307,7 +307,7 @@ test_dispatcher() {
   # --list, --only, --skip, --base
   gate "$repo" --list
   rc_is "--list exits 0" 0
-  expected="bash-hygiene shellcheck public-repo-hygiene workflow-policy forbidden-api no-claude-in-workflows links yaml markdown size-budget actionlint claude-md deny-list toolchain python operator-contract cr-layout gate-tests"
+  expected="bash-hygiene shellcheck public-repo-hygiene workflow-policy forbidden-api no-claude-in-workflows links yaml markdown size-budget actionlint claude-md deny-list owned-drift toolchain python operator-contract cr-layout gate-tests"
   n=$(awk '{print $1}' <<<"$OUT" | grep -Ev '^(ID|CHECK)$' | tr '\n' ' ' | sed 's/ $//')
   if [[ $n == "$expected" ]]; then ok "--list shows check ids in order"; else fail "--list shows check ids in order" "got: $n"; fi
   out_has "--list shows the tool" "shellcheck"
@@ -1299,6 +1299,201 @@ test_record_templates() {
   if [[ $(wc -l <"$t/README.md") -le 50 && $(wc -c <"$t/README.md") -le 4096 ]]; then ok "skeleton README.md is within the cr-readme budget"; else fail "skeleton README.md is within the cr-readme budget"; fi
 }
 
+# ---------------------------------------------------------------- owned-drift (the base commit, the branch of a sync or init PR, pin bumps)
+
+OD_WORKFLOW=$'name: ci\non: push\npermissions: {}\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@'"$(rep 20 a1)"$' # v4.0.0\n      - uses: actions/cache@'"$(rep 20 b2)"$' # v3.0.0\n      - run: echo hi\n'
+OD_OWNED=".claude/rules/example.md .github/workflows/ci.yml"
+# od_state REPO [VERSION]: .template/state.toml with the hashes of the current files of OD_OWNED
+od_state() {
+  local repo=$1 f
+  mkdir -p "$repo/.template"
+  {
+    printf 'schema_version = 1\n\n[template]\nsource = "example-owner/template"\nversion = "%s"\ncommit = "%s"\n\n[owned]\n' "${2:-1.0.0}" "$(rep 20 c3)"
+    for f in $OD_OWNED; do printf '"%s" = "%s"\n' "$f" "$(sha256sum "$repo/$f" | cut -d' ' -f1)"; done
+    printf '\n[overrides]\n'
+  } >"$repo/.template/state.toml"
+}
+# od_repo: a repository whose base commit holds the owned files and the state written with them (the commit of the last sync)
+od_repo() {
+  local repo
+  repo=$(new_repo)
+  mkdir -p "$repo/.claude/rules" "$repo/.github/workflows"
+  printf '# Example rule\n' >"$repo/.claude/rules/example.md"
+  printf '%s' "$OD_WORKFLOW" >"$repo/.github/workflows/ci.yml"
+  od_state "$repo"
+  commit_all "$repo" "sync"
+  printf '%s\n' "$repo"
+}
+# od_run REPO BASE HEAD_REF: runs owned-drift against the base commit (BASE empty: no base) with the head branch name (empty: none)
+od_run() {
+  RC=0
+  OUT=$(cd "$1" && env ${2:+GATE_BASE_REF="$2"} ${3:+GATE_HEAD_REF="$3"} "$BASH" scripts/quality-gate.sh --only owned-drift 2>&1) || RC=$?
+}
+od_head() { # od_head REPO: commit the working tree as the head and print the base commit (its parent)
+  commit_all "$1" head
+  git -C "$1" rev-parse HEAD~1
+}
+od_pass() { od_run "$2" "$3" "${4:-}"; rc_is "owned-drift: $1" 0; }
+od_fail() { # od_fail NAME REPO BASE HEAD_REF EXPECT
+  od_run "$2" "$3" "$4"
+  rc_is "owned-drift: $1" 1
+  out_has "owned-drift: $1 (finding)" "$5"
+}
+od_entry() { printf '[[override]]\npath = "%s"\nreason = "the project words it its own way"\npr = "#7"\n' "$1" >"$2/.template/overrides.toml"; }
+
+test_owned_drift() {
+  local repo base before
+
+  # a change is judged against the hashes of the BASE commit: rewriting state.toml in the same PR does not help
+  repo=$(od_repo)
+  printf 'A line of the project.\n' >>"$repo/.claude/rules/example.md"
+  od_state "$repo"
+  base=$(od_head "$repo")
+  od_fail "a PR that changes an owned file and rewrites its hash fails" "$repo" "$base" feature/x ".claude/rules/example.md:1: owned file changed without an entry in .template/overrides.toml"
+  repo=$(od_repo)
+  printf 'A line of the project.\n' >>"$repo/.claude/rules/example.md"
+  od_entry .claude/rules/example.md "$repo"
+  base=$(od_head "$repo")
+  od_pass "the same change with an entry passes" "$repo" "$base" feature/x
+  od_pass "without a base the tree is judged against its own state, and the entry is there" "$repo" "" ""
+
+  # an entry in the base is not enough once the head drops it
+  repo=$(od_repo)
+  printf 'A line of the project.\n' >>"$repo/.claude/rules/example.md"
+  od_entry .claude/rules/example.md "$repo"
+  commit_all "$repo" "diverge, declared"
+  rm "$repo/.template/overrides.toml"
+  base=$(od_head "$repo")
+  od_fail "a PR that drops the entry of a file that still differs fails, although it does not touch the file" "$repo" "$base" feature/x ".claude/rules/example.md:1: owned file changed without an entry"
+
+  # a divergence that the PR does not touch is not the PR's business, but a push is judged as a whole
+  repo=$(od_repo)
+  printf 'A line of the project.\n' >>"$repo/.claude/rules/example.md"
+  commit_all "$repo" "diverge, undeclared"
+  printf 'x\n' >"$repo/notes.md"
+  base=$(od_head "$repo")
+  od_pass "a PR that leaves an undeclared earlier divergence alone passes" "$repo" "$base" feature/x
+  od_fail "the tree itself, without a base, still fails" "$repo" "" "" ".claude/rules/example.md:1: owned file changed without an entry"
+
+  # the exemption of a template-sync PR: branch name, the version of the branch in state.toml, and a state that matches the files
+  repo=$(od_repo)
+  printf 'A line of the new version.\n' >>"$repo/.claude/rules/example.md"
+  od_state "$repo" 1.1.0
+  base=$(od_head "$repo")
+  od_pass "a template-sync PR that changes files and state.toml together passes" "$repo" "$base" template-sync/v1.1.0
+  od_fail "the same change on another branch fails" "$repo" "$base" feature/x "owned file changed without an entry"
+  od_fail "a branch that only starts like a sync branch fails" "$repo" "$base" template-sync/v1.1.0-x "owned file changed without an entry"
+  od_fail "a sync branch for another version fails" "$repo" "$base" template-sync/v1.2.0 ".template/state.toml:1: a template-sync pull request must record the version of its branch"
+  RC=0
+  OUT=$(cd "$repo" && env GATE_BASE_REF="$base" GITHUB_HEAD_REF=template-sync/v1.1.0 "$BASH" scripts/quality-gate.sh --only owned-drift 2>&1) || RC=$?
+  rc_is "owned-drift: GITHUB_HEAD_REF names the branch when GATE_HEAD_REF is not set" 0
+  RC=0
+  OUT=$(cd "$repo" && env GATE_BASE_REF="$base" GATE_HEAD_REF=feature/x GITHUB_HEAD_REF=template-sync/v1.1.0 "$BASH" scripts/quality-gate.sh --only owned-drift 2>&1) || RC=$?
+  rc_is "owned-drift: GATE_HEAD_REF wins over GITHUB_HEAD_REF" 1
+  repo=$(od_repo)
+  printf 'A line of the new version.\n' >>"$repo/.claude/rules/example.md"
+  od_state "$repo" 1.1.0
+  printf 'A line that is not in the state.\n' >>"$repo/.claude/rules/example.md"
+  base=$(od_head "$repo")
+  od_fail "a sync PR whose files do not match the hashes it records fails" "$repo" "$base" template-sync/v1.1.0 ".claude/rules/example.md:1: does not match its hash in .template/state.toml"
+  repo=$(od_repo)
+  printf 'A line of the new version.\n' >>"$repo/.claude/rules/example.md"
+  od_state "$repo" 1.1.0
+  od_entry .claude/rules/example.md "$repo"
+  base=$(od_head "$repo")
+  od_fail "a sync PR that changes overrides.toml fails" "$repo" "$base" template-sync/v1.1.0 ".template/overrides.toml:1: a template-sync pull request must not change .template/overrides.toml"
+  repo=$(od_repo)
+  printf 'A line of the new version.\n' >>"$repo/.claude/rules/example.md"
+  base=$(od_head "$repo")
+  od_fail "a sync PR that leaves state.toml alone fails" "$repo" "$base" template-sync/v1.1.0 "owned file changed without an entry"
+
+  # the exemption of an init PR: the base has no state.toml, the head writes it with the files
+  repo=$(new_repo)
+  mkdir -p "$repo/.claude/rules" "$repo/.github/workflows"
+  printf '# Example rule\n' >"$repo/.claude/rules/example.md"
+  printf '%s' "$OD_WORKFLOW" >"$repo/.github/workflows/ci.yml"
+  commit_all "$repo" "template"
+  od_state "$repo" 0.0.0
+  base=$(od_head "$repo")
+  od_pass "an init PR that adds state.toml passes" "$repo" "$base" init/v0.0.0
+  od_fail "state.toml added by any other PR fails" "$repo" "$base" feature/x ".template/state.toml:1: added outside an init pull request"
+  od_fail "state.toml added without a branch name fails" "$repo" "$base" "" ".template/state.toml:1: added outside an init pull request"
+  repo=$(od_repo)
+  printf 'A line of the new version.\n' >>"$repo/.claude/rules/example.md"
+  od_state "$repo" 1.1.0
+  base=$(od_head "$repo")
+  od_fail "an init branch is no exemption when the base already has state.toml" "$repo" "$base" init/v1.1.0 "owned file changed without an entry"
+  repo=$(new_repo)
+  commit_all "$repo" "template"
+  base=$(od_head "$repo")
+  od_run "$repo" "$base" feature/x
+  rc_is "owned-drift: a repository without state.toml at the base and the head has nothing to judge (exit 0 under the gate: SKIP)" 0
+  out_has "owned-drift: it is reported as skipped" "SKIP owned-drift"
+
+  # a pin bump of an owned workflow: a change limited to uses: lines of the same actions is allowed (the reading to confirm)
+  repo=$(od_repo)
+  sed -i "s/actions\/checkout@$(rep 20 a1)/actions\/checkout@$(rep 20 d4)/; s/# v4.0.0/# v4.1.0/" "$repo/.github/workflows/ci.yml"
+  base=$(od_head "$repo")
+  od_pass "a pin bump of one action in an owned workflow passes" "$repo" "$base" feature/x
+  sed -i "s/actions\/cache@$(rep 20 b2)/actions\/cache@$(rep 20 e5)/; s/# v3.0.0/# v3.1.0/" "$repo/.github/workflows/ci.yml"
+  base=$(od_head "$repo")
+  od_pass "a second bump on top of the first passes (it is measured against the synced version)" "$repo" "$base" feature/x
+  printf 'x\n' >"$repo/notes.md"
+  base=$(od_head "$repo")
+  od_pass "a PR that does not touch the bumped workflow passes" "$repo" "$base" feature/x
+  od_pass "the tree itself, without a base, is within the pin-bump reading too (the synced version is the last commit of state.toml)" "$repo" "" ""
+  sed -i 's/echo hi/echo changed/' "$repo/.github/workflows/ci.yml"
+  base=$(od_head "$repo")
+  od_fail "a change of another line on top of a bump fails" "$repo" "$base" feature/x ".github/workflows/ci.yml:1: owned file changed without an entry"
+  repo=$(od_repo)
+  sed -i "s/actions\/checkout@$(rep 20 a1) # v4.0.0/actions\/other@$(rep 20 d4) # v4.1.0/" "$repo/.github/workflows/ci.yml"
+  base=$(od_head "$repo")
+  od_fail "a uses: line that names another action fails" "$repo" "$base" feature/x ".github/workflows/ci.yml:1: owned file changed without an entry"
+  repo=$(od_repo)
+  sed -i "s/      - run: echo hi/      - run: echo hi\n      - uses: actions\/checkout@$(rep 20 d4) # v4.1.0/" "$repo/.github/workflows/ci.yml"
+  base=$(od_head "$repo")
+  od_fail "a new uses: line fails" "$repo" "$base" feature/x ".github/workflows/ci.yml:1: owned file changed without an entry"
+  repo=$(od_repo)
+  printf '# an owned file that is not a workflow\n' >>"$repo/.claude/rules/example.md"
+  base=$(od_head "$repo")
+  od_fail "a pin-bump reading does not reach a file that is not a workflow" "$repo" "$base" feature/x ".claude/rules/example.md:1: owned file changed without an entry"
+  # the reading is one constant: with it off a pin bump needs an entry like any other change
+  repo=$(od_repo)
+  sed -i 's/^OWNED_DRIFT_ALLOWS_USES_ONLY = True$/OWNED_DRIFT_ALLOWS_USES_ONLY = False/' "$repo/scripts/lib/template_sync/uses_drift.py"
+  commit_all "$repo" "the other reading"
+  sed -i "s/actions\/checkout@$(rep 20 a1)/actions\/checkout@$(rep 20 d4)/; s/# v4.0.0/# v4.1.0/" "$repo/.github/workflows/ci.yml"
+  base=$(od_head "$repo")
+  od_fail "with the other reading a pin bump fails" "$repo" "$base" feature/x ".github/workflows/ci.yml:1: owned file changed without an entry"
+
+  # without history the synced version is unknown: a pin bump then needs an entry (the check fails safe)
+  repo=$(od_repo)
+  sed -i "s/actions\/checkout@$(rep 20 a1)/actions\/checkout@$(rep 20 d4)/; s/# v4.0.0/# v4.1.0/" "$repo/.github/workflows/ci.yml"
+  commit_all "$repo" head
+  git -C "$repo" checkout -q --orphan flat
+  git -C "$repo" commit -q -m flat
+  printf 'x\n' >>"$repo/notes.md"
+  commit_all "$repo" more
+  od_fail "a pin bump already in a history without the sync commit fails safe" "$repo" "" "" ".github/workflows/ci.yml:1: owned file changed without an entry"
+
+  # an unreadable or option-like base fails closed
+  repo=$(od_repo)
+  od_fail "an unreadable base commit fails closed" "$repo" no-such-ref feature/x "cannot read the base commit"
+  od_fail "a base value that looks like an option fails closed" "$repo" --no-such-option feature/x "cannot read the base commit"
+  git -C "$repo" rm -q -r .template
+  commit_all "$repo" "no state"
+  printf 'x\n' >>"$repo/.claude/rules/example.md"
+  base=$(od_head "$repo")
+  od_run "$repo" "$base" feature/x
+  rc_is "owned-drift: a base without state.toml and a head without it has nothing to judge" 0
+
+  # no state file anywhere: nothing applies
+  repo=$(new_repo)
+  commit_all "$repo" "template"
+  gate "$repo" --only owned-drift
+  rc_is "owned-drift: a tree without state.toml passes" 0
+  out_has "owned-drift: and says it was skipped" "SKIP owned-drift"
+}
+
 # ---------------------------------------------------------------- main
 
 if want dispatcher; then test_dispatcher; fi
@@ -1311,6 +1506,7 @@ if want cr-layout; then test_cr_layout_policy; fi
 if want new-cr; then test_new_cr; fi
 if want cr-layout || want new-cr; then test_record_templates; fi
 if want instructions; then test_instruction_files; fi
+if want owned-drift; then test_owned_drift; fi
 run_check_fixtures
 for f in "$CHECKS"/*.sh; do
   id=$(basename "$f" .sh)

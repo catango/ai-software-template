@@ -1,0 +1,5 @@
+[[override]]
+path = ".template/budgets.toml"
+reason = "the project words this rule its own way"
+pr = "example-owner/sample-app#7"
+

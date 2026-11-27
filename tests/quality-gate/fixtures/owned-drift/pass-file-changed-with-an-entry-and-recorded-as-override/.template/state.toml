@@ -1,0 +1,14 @@
+# Written by scripts/initialize-project and by template-sync only. Do not edit by hand.
+schema_version = 1
+
+[template]
+source = "example-owner/template"
+version = "1.0.0"
+commit = "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+
+[owned]
+".claude/rules/example.md" = "0d5ccf0d9267c2852dbe5e9eaa7ef4c8b7108b6466071404c2b9ec928995bc4b"
+"scripts/example.sh" = "ed9863b3de81efd8cb2067924427837b3c16f5bd551331a11b78c56ae516357c"
+
+[overrides]
+".claude/rules/example.md" = "override"

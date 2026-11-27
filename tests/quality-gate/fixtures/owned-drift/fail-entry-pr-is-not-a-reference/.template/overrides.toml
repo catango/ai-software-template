@@ -1,0 +1,5 @@
+[[override]]
+path = ".claude/rules/example.md"
+reason = "the project words this rule its own way"
+pr = "soon"
+
