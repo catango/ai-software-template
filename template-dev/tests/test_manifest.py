@@ -151,9 +151,20 @@ class ManifestFormatTests(unittest.TestCase):
                 regex = tm.compile_pattern(pattern)
                 self.assertEqual(bool(regex.fullmatch(path)), expected)
 
-    def test_walk_files_skips_git_directory(self):
-        # covered with a real directory in GenerationTests; here only the contract
-        self.assertTrue(callable(tm.walk_files))
+
+
+class WalkFilesTests(TempDirTestCase):
+    def test_skips_git_and_bytecode_directories_and_reports_directory_links(self):
+        root = self.make_dir()
+        write_tree(root, {
+            ".git/config": "x", "keep.txt": "x", "a/b.txt": "x",
+            "__pycache__/top.pyc": "x", "a/__pycache__/inner.pyc": "x",
+        })
+        (root / "link").symlink_to(root / "a", target_is_directory=True)
+        (root / "filelink").symlink_to(root / "keep.txt")
+        self.assertEqual(
+            tm.walk_files(root), ["a/b.txt", "filelink", "keep.txt", "link"]
+        )
 
 
 class GenerationTests(TempDirTestCase):
@@ -267,6 +278,32 @@ class GenerationTests(TempDirTestCase):
         for rel, digest in state["owned"].items():
             self.assertEqual(digest, snap[rel], rel)
         self.assertEqual(state["overrides"], {})
+
+    def test_run_without_the_bytecode_flag_leaves_no_bytecode_and_none_in_state(self):
+        # A user runs the script directly; the tests otherwise always pass -B.
+        tree, result = self.generate("neutral", bytecode=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(list(tree.rglob("__pycache__")), [])
+        self.assertEqual(list(tree.rglob("*.pyc")), [])
+        state = tomllib.loads((tree / ".template" / "state.toml").read_text())
+        self.assertFalse([p for p in state["owned"] if "pycache" in p or p.endswith(".pyc")])
+
+    def test_a_template_only_symbolic_link_to_a_directory_is_removed(self):
+        tree = helpers.export_template(self.make_dir() / "tree")
+        (tree / "template-dev" / "linkdir").symlink_to(tree / ".template", target_is_directory=True)
+        result = helpers.run_init(tree, helpers.NEUTRAL)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse((tree / "template-dev").exists())
+        self.assertTrue((tree / ".template" / "manifest.toml").is_file())
+
+    def test_a_kept_symbolic_link_to_a_directory_is_refused_and_nothing_changes(self):
+        tree = helpers.export_template(self.make_dir() / "tree")
+        (tree / "scripts" / "lib" / "linkdir").symlink_to(tree / ".template", target_is_directory=True)
+        before = helpers.snapshot(tree)
+        result = helpers.run_init(tree, helpers.NEUTRAL)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("scripts/lib/linkdir", result.stderr)
+        self.assertEqual(helpers.snapshot(tree), before)
 
     def test_template_commit_is_recorded_only_when_given_and_valid(self):
         tree = helpers.export_template(self.make_dir() / "tree")

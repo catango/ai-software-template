@@ -26,6 +26,9 @@ import re
 import sys
 from pathlib import Path
 
+# Importing the libraries must not leave bytecode in the repository being initialised.
+sys.dont_write_bytecode = True
+
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE / "lib"))
 
@@ -214,6 +217,13 @@ def main(argv=None):
         return fail("every file needs exactly one class; nothing was changed")
 
     template_only = [p for p in paths if manifest.classify(p) == ["template-only"]]
+    kept_links = [p for p in paths if (root / p).is_dir() and (root / p).is_symlink()
+                  and p not in template_only]
+    if kept_links:
+        for path in kept_links:
+            print(f"initialize-project: symbolic link to a directory is not supported: {path}",
+                  file=sys.stderr)
+        return fail("remove the link or make it template-only; nothing was changed")
     platform_doc = (presets["platform_doc"].read_bytes() if presets["platform_doc"]
                     else NEUTRAL_PLATFORM_DOC.encode())
     deny_platform = presets["deny_platform"].read_bytes() if presets["deny_platform"] else b""
