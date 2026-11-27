@@ -20,6 +20,7 @@ sys.path.insert(1, str(ROOT / "scripts" / "lib"))
 
 from cr_tools import checkpoint, context, criteria  # noqa: E402
 from cr_tools.client import FixtureClient, GhClient  # noqa: E402
+from pr_contract.errors import ApiError  # noqa: E402,F401
 
 REPO = "example-owner/sample-app"
 DESIGN_REPO = "example-owner/design-records"

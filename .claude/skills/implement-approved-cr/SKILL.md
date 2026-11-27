@@ -18,7 +18,7 @@ is in a repository listed under `design_repos`). It checks what the PR contract 
    top, fill every section, and replace the checklist between `<!-- checkpoint:start -->` and `<!-- checkpoint:end -->` with the
    plan rows (at most 20 lines of at most 120 characters).
 4. Open it as a draft: `gh pr create --draft --body-file <file>`. Commit and push after each checklist item, then
-   `scripts/pr-checkpoint tick <item>`. When every item but the last is ticked and CI is green: `scripts/pr-checkpoint ready`.
+   `scripts/pr-checkpoint tick <item>`. When every item but the last is ticked: `scripts/pr-checkpoint ready` (it refuses unless every check of the head is finished and green).
 
 ## Reads (in order)
 

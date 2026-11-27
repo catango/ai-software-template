@@ -232,31 +232,147 @@ class Tick(Base):
         self.assertFalse((helpers.ROOT / "pwned").exists())
 
 
+GREEN = {"check_runs": [{"id": 1, "name": "gate", "status": "completed", "conclusion": "success"}]}
+
+
+class Flaky:
+    """Wraps a client: `mark_ready` or `patch_body` fails the given number of times, `pull` can change the body on its second read."""
+
+    def __init__(self, inner, fail_ready=0, fail_patch=0, change_body_on_read=None):
+        self.inner, self.fail_ready, self.fail_patch, self.change, self.reads = inner, fail_ready, fail_patch, change_body_on_read, 0
+        self.repo = inner.repo
+
+    def __getattr__(self, name):
+        return getattr(self.inner, name)
+
+    def pull(self, number, repo=None):
+        data = self.inner.pull(number, repo)
+        self.reads += 1
+        if self.change is not None and self.reads >= 2:
+            data["body"] = self.change
+        return data
+
+    def mark_ready(self, node_id):
+        if self.fail_ready:
+            self.fail_ready -= 1
+            raise helpers.ApiError("HTTP 502")
+        self.inner.mark_ready(node_id)
+
+    def patch_body(self, number, body):
+        if self.fail_patch:
+            self.fail_patch -= 1
+            raise helpers.ApiError("HTTP 502")
+        self.inner.patch_body(number, body)
+
+
 class Ready(Base):
+    def setUp(self):
+        super().setUp()
+        helpers.write(self.fix / f"check-runs-{HEAD_SHA}.json", GREEN)
+
+    def put(self, ticked, **kwargs):
+        helpers.write(self.fix / "pr-5.json", helpers.pr_json(5, node_id=NODE_ID, body=helpers.implementation_body(ticked=ticked), **kwargs))
+
     def test_refuses_while_an_item_other_than_the_last_is_open(self):
-        helpers.write(self.fix / "pr-5.json", helpers.pr_json(5, node_id=NODE_ID, body=helpers.implementation_body(ticked=2)))
+        self.put(2)
         code, out, _ = helpers.run_checkpoint(self, "ready", "5")
         self.assertEqual(code, 1)
         self.assertIn("item 3 is not ticked", out)
         self.assertTrue(self.stored("pr-5.json")["draft"])
 
-    def test_marks_ready_and_ticks_the_last_item(self):
-        helpers.write(self.fix / "pr-5.json", helpers.pr_json(5, node_id=NODE_ID, body=helpers.implementation_body(ticked=3)))
+    def test_ticks_the_last_item_and_marks_ready(self):
+        self.put(3)
         code, out, err = helpers.run_checkpoint(self, "ready", "5")
         self.assertEqual((code, err), (0, ""), out)
         stored = self.stored("pr-5.json")
         self.assertFalse(stored["draft"])
-        self.assertIn("- [x] Marked ready for review", stored["body"])
         self.assertEqual(stored["body"], helpers.implementation_body(ticked=4))
 
-    def test_dry_run_and_already_ready(self):
-        helpers.write(self.fix / "pr-5.json", helpers.pr_json(5, node_id=NODE_ID, body=helpers.implementation_body(ticked=3)))
-        self.assertEqual(helpers.run_checkpoint(self, "ready", "5", "--dry-run")[0], 0)
+    def test_refuses_on_a_failed_a_running_or_a_missing_check(self):
+        self.put(3)
+        for runs, text in (([{"id": 2, "name": "x", "status": "completed", "conclusion": "failure"}], "1 failed"),
+                           ([{"id": 2, "name": "x", "status": "in_progress", "conclusion": None}], "1 not finished"),
+                           ([], "no check run")):
+            helpers.write(self.fix / f"check-runs-{HEAD_SHA}.json", {"check_runs": GREEN["check_runs"] + runs} if runs else {"check_runs": []})
+            code, out, _ = helpers.run_checkpoint(self, "ready", "5")
+            self.assertEqual(code, 1, text)
+            self.assertIn(text, out)
+            self.assertTrue(self.stored("pr-5.json")["draft"])
+            self.assertEqual(self.stored("pr-5.json")["body"], helpers.implementation_body(ticked=3))
+
+    def test_an_older_failed_run_of_a_name_does_not_block(self):
+        self.put(3)
+        helpers.write(self.fix / f"check-runs-{HEAD_SHA}.json", {"check_runs": [
+            {"id": 1, "name": "gate", "status": "completed", "conclusion": "cancelled"}, {"id": 2, "name": "gate", "status": "completed", "conclusion": "success"}]})
+        self.assertEqual(helpers.run_checkpoint(self, "ready", "5")[0], 0)
+
+    def test_dry_run_changes_nothing(self):
+        self.put(3)
+        code, out, _ = helpers.run_checkpoint(self, "ready", "5", "--dry-run")
+        self.assertEqual(code, 0)
+        self.assertIn("dry run", out)
         self.assertTrue(self.stored("pr-5.json")["draft"])
-        helpers.write(self.fix / "pr-5.json", helpers.pr_json(5, node_id=NODE_ID, draft=False, body=helpers.implementation_body(ticked=3)))
+        self.assertEqual(self.stored("pr-5.json")["body"], helpers.implementation_body(ticked=3))
+
+    def test_a_ready_pull_request_with_everything_ticked_is_left_alone(self):
+        self.put(4, draft=False)
         code, out, _ = helpers.run_checkpoint(self, "ready", "5")
+        self.assertEqual(code, 0)
         self.assertIn("already ready", out)
-        self.assertIn("- [ ] Marked ready for review", self.body())
+
+    def test_a_failed_ready_mark_is_finished_by_a_retry(self):
+        """The last item is ticked first; when the mutation then fails, the retry finds a draft with every item ticked and only marks it."""
+        self.put(3)
+        client = Flaky(self.client(), fail_ready=1)
+        code, _, err = helpers.run_checkpoint(self, "ready", "5", client=client)
+        self.assertEqual(code, 3, err)
+        self.assertTrue(self.stored("pr-5.json")["draft"])
+        self.assertEqual(self.stored("pr-5.json")["body"], helpers.implementation_body(ticked=4))
+        code, out, _ = helpers.run_checkpoint(self, "ready", "5", client=client)
+        self.assertEqual(code, 0, out)
+        self.assertFalse(self.stored("pr-5.json")["draft"])
+
+    def test_a_failed_tick_marks_nothing_and_the_retry_finishes(self):
+        self.put(3)
+        client = Flaky(self.client(), fail_patch=1)
+        self.assertEqual(helpers.run_checkpoint(self, "ready", "5", client=client)[0], 3)
+        self.assertTrue(self.stored("pr-5.json")["draft"])
+        self.assertEqual(self.stored("pr-5.json")["body"], helpers.implementation_body(ticked=3))
+        self.assertEqual(helpers.run_checkpoint(self, "ready", "5", client=client)[0], 0)
+        self.assertFalse(self.stored("pr-5.json")["draft"])
+        self.assertEqual(self.stored("pr-5.json")["body"], helpers.implementation_body(ticked=4))
+
+    def test_a_ready_pull_request_with_an_open_last_item_gets_it_ticked(self):
+        self.put(3, draft=False)
+        code, out, _ = helpers.run_checkpoint(self, "ready", "5")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(self.stored("pr-5.json")["body"], helpers.implementation_body(ticked=4))
+        self.assertFalse(self.stored("pr-5.json")["draft"])
+
+
+class Concurrent(Base):
+    """A body that changes between the read and the write is not overwritten."""
+
+    def test_tick_refuses_when_the_body_changed(self):
+        before = self.body()
+        client = Flaky(self.client(), change_body_on_read=before + "\nA line added meanwhile.\n")
+        code, out, _ = helpers.run_checkpoint(self, "tick", "1", "5", client=client)
+        self.assertEqual(code, 1)
+        self.assertIn("refused: the body changed while it was being edited", out)
+        self.assertEqual(self.body(), before)
+
+    def test_ready_refuses_when_the_body_changed(self):
+        helpers.write(self.fix / f"check-runs-{HEAD_SHA}.json", GREEN)
+        helpers.write(self.fix / "pr-5.json", helpers.pr_json(5, node_id=NODE_ID, body=helpers.implementation_body(ticked=3)))
+        client = Flaky(self.client(), change_body_on_read="changed\n")
+        code, out, _ = helpers.run_checkpoint(self, "ready", "5", client=client)
+        self.assertEqual(code, 1, out)
+        self.assertTrue(self.stored("pr-5.json")["draft"])
+
+    def test_an_unchanged_body_is_written(self):
+        client = Flaky(self.client())
+        self.assertEqual(helpers.run_checkpoint(self, "tick", "1", "5", client=client)[0], 0)
+        self.assertIn("- [x] Plan item 1", self.body())
 
 
 class Calls(Base):
@@ -267,6 +383,7 @@ class Calls(Base):
             "contents/config/project.yaml": {"type": "file", "encoding": "base64", "size": len(helpers.CONFIG), "content": __import__("base64").b64encode(helpers.CONFIG.encode()).decode()},
             "-X PATCH": {"number": 5},
             "graphql": {"data": {"markPullRequestReadyForReview": {"pullRequest": {"isDraft": False}}}},
+            f"commits/{HEAD_SHA}/check-runs": GREEN,
             "pulls/5": helpers.pr_json(5, node_id=NODE_ID, body=body),
         })
 
@@ -281,17 +398,17 @@ class Calls(Base):
         self.assertEqual(argv, ["gh", "api", "-X", "PATCH", f"repos/{REPO}/pulls/5", "--input", "-"])
         self.assertEqual(json.loads(data), {"body": body.replace("- [ ] Plan item 1", "- [x] Plan item 1")})
 
-    def test_ready_is_the_graphql_mutation_then_a_patch(self):
+    def test_ready_is_a_patch_then_the_graphql_mutation(self):
         body = helpers.implementation_body(ticked=3)
         runner = self.runner(body)
         code, out, _ = helpers.run_checkpoint(self, "ready", "5", client=GhClient(REPO, runner=runner))
         self.assertEqual(code, 0, out)
         writes = runner.writes()
-        self.assertEqual([("graphql" in a) for a, _ in writes], [True, False])
-        query = [part for part in writes[0][0] if part.startswith("query=")][0]
+        self.assertEqual([("graphql" in a) for a, _ in writes], [False, True])
+        self.assertEqual(" ".join(writes[0][0][:4]), "gh api -X PATCH")
+        query = [part for part in writes[1][0] if part.startswith("query=")][0]
         self.assertIn("markPullRequestReadyForReview", query)
-        self.assertIn("id=" + NODE_ID, writes[0][0])
-        self.assertEqual(" ".join(writes[1][0][:4]), "gh api -X PATCH")
+        self.assertIn("id=" + NODE_ID, writes[1][0])
 
     def test_no_call_is_gh_pr_edit_or_gh_pr_ready(self):
         runner = self.runner(helpers.implementation_body(ticked=3))

@@ -2,7 +2,8 @@
 
     pr-checkpoint show  [PR]                 the checklist, the latest CI result, and the commits since the merge base
     pr-checkpoint tick  ITEM [PR] [--dry-run]    tick one item (its number, or its text); ITEM is data, never run
-    pr-checkpoint ready [PR] [--dry-run]     mark a draft ready (every item but the last must be ticked), then tick the last
+    pr-checkpoint ready [PR] [--dry-run]     tick the last item, then mark a draft ready (every other item must be ticked and the
+                                             check runs of the head commit all finished and green)
 
 Without PR, the open pull request of the current branch is used. Only a pull request authored by the machine account of
 `config/project.yaml` (read on the BASE commit of the pull request) is read or changed. The body is read and edited ONLY between
@@ -195,6 +196,13 @@ def cmd_show(client, args, tree):
     return 0
 
 
+def write_body(client, pull, body):
+    """PATCH the edited body, after a fresh read shows that nobody changed the body since it was read (a concurrent edit is not lost)."""
+    if client.pull(pull["number"])["body"] != pull["body"]:
+        raise Refused("the body changed while it was being edited")
+    client.patch_body(pull["number"], body)
+
+
 def cmd_tick(client, args, tree):
     pull = judged_pull(client, args.pr, tree)
     block = Block(pull["body"])
@@ -210,12 +218,14 @@ def cmd_tick(client, args, tree):
     if args.dry_run:
         print(common.summary(SCRIPT, f"dry run: would tick item {number} of #{pull['number']}; nothing changed"))
         return 0
-    client.patch_body(pull["number"], body)
+    write_body(client, pull, body)
     print(common.summary(SCRIPT, f"ticked item {number} of #{pull['number']}"))
     return 0
 
 
 def cmd_ready(client, args, tree):
+    """Tick the last item FIRST (the pull request is still a draft), then mark it ready, so a retry after a failure finishes the job:
+    a draft whose last item is ticked is only marked; a ready pull request whose last item is open is only ticked."""
     pull = judged_pull(client, args.pr, tree)
     block = Block(pull["body"])
     items = block.items()
@@ -224,19 +234,25 @@ def cmd_ready(client, args, tree):
     open_items = [n for n, (_, ticked, _) in enumerate(items[:-1], 1) if not ticked]
     if open_items:
         raise Refused(f"item {open_items[0]} is not ticked; only the last item may be open")
-    if not pull["draft"]:
+    _, counts = ci_lines(client, pull)
+    if counts[1] or counts[2]:
+        raise Refused(f"CI is not green on the head commit: {counts[1]} failed, {counts[2]} not finished")
+    if sum(counts) == 0:
+        raise Refused("no check run was found for the head commit")
+    last_index, last_ticked, _ = items[-1]
+    if last_ticked and not pull["draft"]:
         print(common.summary(SCRIPT, f"#{pull['number']} is already ready; nothing changed"))
         return 0
     if args.dry_run:
-        print(common.summary(SCRIPT, f"dry run: would mark #{pull['number']} ready; nothing changed"))
+        print(common.summary(SCRIPT, f"dry run: would tick the last item and mark #{pull['number']} ready; nothing changed"))
         return 0
-    if not pull["node_id"]:
+    if pull["draft"] and not pull["node_id"]:
         raise ApiError("malformed response")
-    client.mark_ready(pull["node_id"])
-    last_index, last_ticked, _ = items[-1]
     if not last_ticked:
-        client.patch_body(pull["number"], block.ticked(last_index))
-    print(common.summary(SCRIPT, f"marked #{pull['number']} ready and ticked the last item"))
+        write_body(client, pull, block.ticked(last_index))
+    if pull["draft"]:
+        client.mark_ready(pull["node_id"])
+    print(common.summary(SCRIPT, f"#{pull['number']} is ready and its last item is ticked"))
     return 0
 
 
