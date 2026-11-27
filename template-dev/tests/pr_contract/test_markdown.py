@@ -94,6 +94,21 @@ class QualifiedReferenceTests(unittest.TestCase):
 
 
 class HasContentTests(unittest.TestCase):
+    def test_punctuation_symbols_and_markers_alone_are_not_content(self):
+        for text in (".", "-", "---", "...", "?!", "*", "- [ ]", "- [x]", "* [ ]  \n- [ ]", "1.", "1) ", "> ", "- - -", "n/a" [:0] + "/",
+                     "<!-- c -->", "```\n```", "`", "$", "©", "\u200b-"):
+            with self.subTest(text=text):
+                self.assertFalse(markdown.has_content(text), repr(text))
+
+    def test_a_word_or_digit_is_content_with_or_without_list_markers(self):
+        for text in ("x", "7", "n/a", "- [ ] item", "- [x] done", "* one\n* two", "1. first", "Hello.", "ß", "漢字", "- [ ] a",
+                     "1.5"):
+            with self.subTest(text=text):
+                self.assertTrue(markdown.has_content(text), repr(text))
+
+    def test_markers_inside_a_line_do_not_count_as_markers(self):
+        self.assertTrue(markdown.has_content("see - [ ] here"))
+
     def test_cases(self):
         self.assertFalse(markdown.has_content(""))
         self.assertFalse(markdown.has_content(" \n\t\n"))

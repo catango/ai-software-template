@@ -24,6 +24,7 @@ source = "example-org/starter-template"
 [workflow]
 design_repos = ["example-org/design-records"]
 operator_paths = ["ops/scripts/", "ops/profile.yml"]
+docs_roots = ["docs/", "records/"]
 
 [[architectures]]
 name = "amd64"

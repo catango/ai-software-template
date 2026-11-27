@@ -1,0 +1,4 @@
+exit 1
+pr-contract: PR #10 (type: implementation)
+FAIL PC-5: approved file changed: docs/adr/ADR-001-x.md
+pr-contract: 1 violation

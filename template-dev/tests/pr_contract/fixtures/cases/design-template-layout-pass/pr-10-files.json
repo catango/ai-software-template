@@ -1,0 +1,10 @@
+[
+ {
+  "filename": "template-dev/docs/cr/CR-1/design.md",
+  "status": "added"
+ },
+ {
+  "filename": "template-dev/docs/adr/ADR-001-x.md",
+  "status": "added"
+ }
+]

@@ -1,0 +1,14 @@
+[
+ {
+  "filename": "docs/cr/_template/design.md",
+  "status": "added"
+ },
+ {
+  "filename": "docs/cr/_template/acceptance-criteria.md",
+  "status": "added"
+ },
+ {
+  "filename": "docs/adr/_template.md",
+  "status": "added"
+ }
+]

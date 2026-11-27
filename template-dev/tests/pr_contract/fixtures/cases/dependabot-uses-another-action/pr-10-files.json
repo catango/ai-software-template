@@ -1,0 +1,7 @@
+[
+ {
+  "filename": ".github/workflows/ci.yml",
+  "status": "modified",
+  "patch": "@@ -10,7 +10,7 @@ jobs:\n steps:\n-      - uses: actions/checkout@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa # v7.0.1\n+      - uses: evil/checkout@bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb # v7.0.2\n"
+ }
+]

@@ -1,4 +1,4 @@
 exit 1
 pr-contract: PR #10 (type: design)
-FAIL PC-4: path outside docs/: scripts/x.py
+FAIL PC-4: path outside the record roots: scripts/x.py
 pr-contract: 1 violation

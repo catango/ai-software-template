@@ -358,6 +358,12 @@ class GenerationTests(TempDirTestCase):
             "newline in description": good.replace("Sample application", "Sample\\napplication"),
             "absolute operator path": good.replace("operator_paths = []", 'operator_paths = ["/etc/x"]'),
             "parent operator path": good.replace("operator_paths = []", 'operator_paths = ["../x"]'),
+            "operator path with a space": good.replace("operator_paths = []", 'operator_paths = ["a b/"]'),
+            "operator path with a star inside": good.replace("operator_paths = []", 'operator_paths = ["ops/*/x/"]'),
+            "operator path too long": good.replace("operator_paths = []", 'operator_paths = ["' + "a" * 201 + '"]'),
+            "docs root without a slash": good.replace("operator_paths = []", 'operator_paths = []\ndocs_roots = ["docs"]'),
+            "empty docs roots": good.replace("operator_paths = []", 'operator_paths = []\ndocs_roots = []'),
+            "duplicate docs roots": good.replace("operator_paths = []", 'operator_paths = []\ndocs_roots = ["docs/", "docs/"]'),
             "same approver and machine": good.replace('machine_login = "example-machine"', 'machine_login = "example-approver"'),
             "absolute preset path": good + '\n[preset]\nplatform_doc = "/etc/hostname"\n',
             "preset path leaves directory": good + '\n[preset]\nplatform_doc = "../neutral.toml"\n',
@@ -373,6 +379,16 @@ class GenerationTests(TempDirTestCase):
                 result = helpers.run_init(tree, cfg)
                 self.assertEqual(result.returncode, 2, (name, result.stdout, result.stderr))
                 self.assertEqual(helpers.snapshot(tree), before)
+
+    def test_docs_roots_default_to_docs_and_are_written_to_the_configuration(self):
+        for name, expected in (("neutral", ["docs/"]), ("second", ["docs/", "records/"])):
+            with self.subTest(config=name):
+                tree, result = self.generate(name)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                text = (tree / "config" / "project.yaml").read_text()
+                for root in expected:
+                    self.assertIn(f'    - "{root}"\n', text)
+                self.assertIn("  docs_roots:\n", text)
 
     def test_a_section_that_is_not_a_table_is_named_as_such(self):
         good = helpers.NEUTRAL.read_text()

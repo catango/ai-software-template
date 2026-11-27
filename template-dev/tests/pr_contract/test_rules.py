@@ -199,6 +199,96 @@ class PC5(unittest.TestCase):
         self.assertEqual(evaluate(make_pr("design"), files=[fc("docs/cr/CR-2/design.md"), fc("docs/adr/x.md")]), [])
 
 
+class DocsRoots(unittest.TestCase):
+    """PC-4 and PC-5 follow `workflow.docs_roots` of the BASE configuration (default `docs/`), and the owned templates under a
+    root are not approved records."""
+    TEMPLATE_LAYOUT = ("docs/", "template-dev/docs/")
+
+    def client(self, roots=TEMPLATE_LAYOUT, **kw):
+        cfg = helpers.base_config()
+        if roots is not None:
+            cfg["workflow"]["docs_roots"] = list(roots)
+        return MemClient(config=cfg, **kw)
+
+    def test_a_design_pr_may_touch_every_configured_root_and_nothing_else(self):
+        pr = make_pr("design")
+        ok = [fc("docs/a.md"), fc("template-dev/docs/cr/CR-1/design.md"), fc("template-dev/docs/adr/ADR-001-x.md")]
+        self.assertEqual(evaluate(pr, self.client(), files=ok), [])
+        for path in ("template-dev/tests/a.py", "template-dev/docsx/a.md", "template-dev/a.md", "scripts/x", "other/docs/a.md"):
+            with self.subTest(path=path):
+                self.assertEqual(ids(evaluate(pr, self.client(), files=[fc("docs/a.md"), fc(path)])), {"PC-4"})
+
+    def test_the_default_root_is_docs_when_the_key_is_absent(self):
+        pr = make_pr("design")
+        self.assertEqual(evaluate(pr, self.client(roots=None), files=[fc("docs/a.md")]), [])
+        self.assertIn("PC-4", ids(evaluate(pr, self.client(roots=None), files=[fc("template-dev/docs/a.md")])))
+
+    def test_approved_records_under_every_root_are_protected_in_implementation_and_change_prs(self):
+        paths = ("docs/cr/CR-2/design.md", "template-dev/docs/cr/CR-1/design.md", "template-dev/docs/cr/CR-1/acceptance-criteria.md",
+                 "template-dev/docs/adr/ADR-001-x.md", "template-dev/docs/adr/sub/n.md")
+        for kind in ("implementation", "change"):
+            for path in paths:
+                with self.subTest(kind=kind, path=path):
+                    found = evaluate(make_pr(kind), self.client(), files=[fc(path)])
+                    self.assertEqual([v.message for v in found if v.rule == "PC-5"], [f"approved file changed: {path}"])
+
+    def test_a_root_that_is_not_configured_protects_nothing_there(self):
+        self.assertNotIn("PC-5", ids(evaluate(make_pr(), self.client(roots=("docs/",)), files=[fc("template-dev/docs/cr/CR-1/design.md")])))
+
+    def test_other_record_files_and_the_plan_are_fine(self):
+        for path in ("template-dev/docs/cr/CR-1/README.md", "template-dev/docs/cr/CR-1/implementation-plan.md",
+                     "template-dev/docs/README.md", "template-dev/docs/cr/CR-1/sub/design.md"):
+            with self.subTest(path=path):
+                self.assertNotIn("PC-5", ids(evaluate(make_pr(), self.client(), files=[fc(path)])))
+
+    def test_the_owned_templates_are_not_approved_records(self):
+        templates = ("docs/cr/_template/design.md", "docs/cr/_template/acceptance-criteria.md", "docs/adr/_template.md",
+                     "template-dev/docs/cr/_template/design.md", "template-dev/docs/adr/_template.md")
+        for kind in ("implementation", "change"):
+            for path in templates:
+                for status in ("added", "modified", "removed"):
+                    with self.subTest(kind=kind, path=path, status=status):
+                        self.assertNotIn("PC-5", ids(evaluate(make_pr(kind), self.client(), files=[fc(path, status)])))
+        # but a real record next to the templates is still protected, and so is a rename out of a record
+        for path in ("docs/cr/CR-2/design.md", "docs/cr/_template2/design.md", "docs/adr/_template.md.bak", "docs/adr/_templates.md",
+                     "docs/adr/_template/x.md", "docs/cr/_template/sub/design.md"):
+            with self.subTest(path=path):
+                protected = path != "docs/cr/_template/sub/design.md"
+                self.assertEqual("PC-5" in ids(evaluate(make_pr(), self.client(), files=[fc(path)])), protected, path)
+        renamed = fc("docs/other.md", "renamed", previous="docs/cr/CR-2/design.md")
+        self.assertIn("PC-5", ids(evaluate(make_pr(), self.client(), files=[renamed])))
+
+    def test_a_design_pr_may_change_the_templates(self):
+        self.assertEqual(evaluate(make_pr("design"), self.client(), files=[fc("docs/cr/_template/design.md"), fc("docs/adr/_template.md")]), [])
+
+    def test_a_missing_file_or_a_malformed_key_fails_closed(self):
+        bad = {"empty": [], "string": "docs/", "no slash": ["docs"], "absolute": ["/docs/"], "dot dot": ["a/../b/"],
+               "duplicate": ["docs/", "docs/"], "not strings": [5]}
+        for name, value in bad.items():
+            with self.subTest(case=name):
+                cfg = helpers.base_config()
+                cfg["workflow"]["docs_roots"] = value
+                for kind, path in (("design", "docs/a.md"), ("implementation", "docs/a.md")):
+                    found = evaluate(make_pr(kind), MemClient(config=cfg), files=[fc(path)])
+                    rule = "PC-4" if kind == "design" else "PC-5"
+                    self.assertEqual([v.message for v in found if v.rule == rule], ["docs_roots missing or invalid in the base configuration"])
+        found = evaluate(make_pr("design"), MemClient(config=None), files=[fc("docs/a.md")])
+        self.assertIn("PC-4", ids(found))
+
+    def test_nothing_is_read_for_types_that_use_neither_rule(self):
+        for kind in ("template-sync", "init"):
+            client = self.client(base_files={".template/manifest.toml": "x"})
+            evaluate(make_pr(kind), client, files=[fc("README.md")])
+
+    def test_the_head_cannot_change_the_roots(self):
+        client = self.client(roots=("docs/",), files={10: [fc("template-dev/docs/cr/CR-1/design.md"), fc("config/project.yaml")]})
+        found = rules.evaluate(make_pr(), client, helpers.TEMPLATES)
+        self.assertNotIn("PC-5", ids(found))  # the head's edit of config/project.yaml is not read: the base roots are docs/ only
+        client = self.client(roots=("docs/",), files={10: [fc("docs/cr/CR-2/design.md"), fc("config/project.yaml")]})
+        self.assertIn("PC-5", ids(rules.evaluate(make_pr(), client, helpers.TEMPLATES)))
+        self.assertEqual([c for c in client.calls if c[0] == "base_config"], [("base_config", helpers.BASE_SHA)])
+
+
 class PC6(unittest.TestCase):
     JUSTIFICATION = "Workflow change justification"
 
@@ -475,6 +565,40 @@ def bot_pr(**over):
 class PC7(unittest.TestCase):
     def test_uses_only_workflow_change_passes(self):
         self.assertEqual(evaluate(bot_pr(), files=[fc(".github/workflows/ci.yml", patch=USES_PATCH)]), [])
+
+    def uses_patch(self, old, new, extra=""):
+        return ("@@ -10,7 +10,7 @@ jobs:\n steps:\n" + "".join(f"-      - uses: {o}\n" for o in old) + "".join(f"+      - uses: {n}\n" for n in new) + extra)
+
+    def test_a_bump_of_the_same_action_passes_and_another_action_fails(self):
+        a, b = "actions/checkout@" + "a" * 40 + " # v7.0.1", "actions/checkout@" + "b" * 40 + " # v7.0.2"
+        other = "actions/setup-python@" + "b" * 40 + " # v5.0.0"
+        ok = fc(".github/workflows/ci.yml", patch=self.uses_patch([a], [b]))
+        self.assertEqual(evaluate(bot_pr(), files=[ok]), [])
+        for name, patch in (("another action", self.uses_patch([a], [other])),
+                            ("another owner", self.uses_patch([a], ["evil/checkout@" + "b" * 40 + " # v7.0.2"])),
+                            ("a prefix of the name", self.uses_patch([a], ["actions/checkout-x@" + "b" * 40])),
+                            ("a new action only", self.uses_patch([], [other])),
+                            ("a removed action only", self.uses_patch([a], [])),
+                            ("one more added than removed", self.uses_patch([a], [b, other])),
+                            ("swapped across two lines", self.uses_patch([a, other], [other.replace("b" * 40, "c" * 40), b])),
+                            ("a local action for a pin", self.uses_patch([a], ["./.github/actions/x"])),
+                            ("a docker image for a pin", self.uses_patch([a], ["docker://alpine:3"]))):
+            with self.subTest(case=name):
+                found = evaluate(bot_pr(), files=[fc(".github/workflows/ci.yml", patch=patch)])
+                self.assertEqual(ids(found), {"PC-7"}, name)
+
+    def test_several_bumps_in_order_pass(self):
+        a1, a2 = "actions/checkout@" + "a" * 40 + " # v7", "actions/setup-python@" + "a" * 40 + " # v5"
+        b1, b2 = a1.replace("a" * 40, "b" * 40), a2.replace("a" * 40, "b" * 40)
+        patch = self.uses_patch([a1, a2], [b1, b2])
+        self.assertEqual(evaluate(bot_pr(), files=[fc(".github/workflows/ci.yml", patch=patch)]), [])
+        two_hunks = patch + "@@ -40,3 +40,3 @@\n" + f"-      - uses: {a1}\n+      - uses: {b1}\n"
+        self.assertEqual(evaluate(bot_pr(), files=[fc(".github/workflows/ci.yml", patch=two_hunks)]), [])
+
+    def test_the_name_is_what_comes_before_the_at_sign(self):
+        self.assertEqual(rules.uses_name("uses: actions/checkout@abc # v1"), "actions/checkout")
+        self.assertEqual(rules.uses_name("- uses: ./x"), "./x")
+        self.assertEqual(rules.uses_name("  - uses:   a/b@c"), "a/b")
 
     def test_manifests_and_lockfiles_pass(self):
         files = [fc("toolchain/python/ci.lock", patch="@@ -1 +1 @@\n-a\n+b\n"), fc("requirements.txt"),

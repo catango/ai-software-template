@@ -1,0 +1,4 @@
+exit 1
+pr-contract: PR #10 (type: dependabot)
+FAIL PC-7: workflow change is not limited to uses: lines: .github/workflows/ci.yml
+pr-contract: 1 violation

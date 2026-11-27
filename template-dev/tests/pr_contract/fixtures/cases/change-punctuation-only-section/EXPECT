@@ -1,0 +1,4 @@
+exit 1
+pr-contract: PR #10 (type: change)
+FAIL PC-1: section empty: Summary
+pr-contract: 1 violation
