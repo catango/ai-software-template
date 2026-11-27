@@ -305,6 +305,20 @@ test_dispatcher() {
   gate "$repo" --only bash-hygiene
   rc_is "files under tests/*/fixtures/ are not checked" 0
 
+  # ... except by a check that declares "# scope: all": the identifier scan reads every tracked file, fixtures included
+  repo=$(new_repo)
+  mkdir -p "$repo/tests/demo/fixtures"
+  printf '%s_%s\n' ghp "$(rep 36 x)" >"$repo/tests/demo/fixtures/token.txt"
+  good_script "$repo" good.sh
+  commit_all "$repo"
+  gate "$repo" --only public-repo-hygiene
+  rc_is "a token in a project's fixture is found by public-repo-hygiene" 1
+  out_has "the finding names the fixture file" "tests/demo/fixtures/token.txt:1: possible token"
+  gate "$repo" --only bash-hygiene
+  rc_is "the other checks still skip the fixtures" 0
+  gate "$repo" --only public-repo-hygiene --base HEAD
+  rc_is "--base without a change in the fixture leaves it alone" 0
+
   # missing tool: SKIP locally, exit 3 under --strict (a failure takes priority)
   bin=$(restricted_bin)
   RC=0
@@ -392,6 +406,13 @@ test_dispatcher() {
   gate "$repo" --only zz-crash
   rc_is "a crashing check fails the gate" 1
   out_has "a crashing check is reported" "crashed (exit 5)"
+  repo=$(new_repo)
+  printf '#!/usr/bin/env bash\n# tool: none\n# order: 999\n# class: project\n# scope: weird\nset -euo pipefail\nexit 0\n' >"$repo/scripts/checks/zz-scope.sh"
+  chmod 755 "$repo/scripts/checks/zz-scope.sh"
+  commit_all "$repo"
+  gate "$repo" --list
+  rc_is "an unknown scope header fails the gate" 1
+  out_has "an unknown scope is named" 'zz-scope: unknown scope "weird"'
   repo=$(new_repo)
   bad_script "$repo" '::notice::x.sh'
   commit_all "$repo"

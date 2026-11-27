@@ -19,6 +19,9 @@ Usage: scripts/quality-gate.sh [--list] [--only ID[,ID...]] [--skip ID[,ID...]]
   --strict     a missing tool is an error (exit 3); CI always passes this
   --verbose    print every finding instead of the first 20 per check
 
+A check sees every tracked file except the inputs of tests (tests/*/fixtures/); one that declares "# scope: all" in its header
+sees those too (public-repo-hygiene: a token in a fixture is still a token).
+
 Every check has a "# class:" header (generic, template, platform, or project) in its first 12 lines;
 a missing or unknown class fails the gate (exit 1) before anything runs, also with --list.
 
@@ -62,17 +65,18 @@ done
 header() { awk -v k="$2" 'NR<=12 && $1=="#" && $2==k":" {print $3; exit}' "$1"; }
 
 # Discover checks, ordered by their "# order:" header.
-IDS=() TOOLS=() CLASSES=()
-while read -r _ id tool class; do
+IDS=() TOOLS=() CLASSES=() SCOPES=()
+while read -r _ id tool class scope; do
   IDS+=("$id")
   TOOLS+=("$tool")
   CLASSES+=("$class")
+  SCOPES+=("$scope")
 done < <(
   for f in "$CHECK_DIR"/*.sh; do
     [[ -e $f ]] || continue
     id=$(basename "$f" .sh)
-    printf '%s %s %s %s\n' "$(header "$f" order || true)" "$id" "$(header "$f" tool || true)" "$(header "$f" class || true)"
-  done | awk '{ printf "%s %s %s %s\n", ($1 == "" ? 999 : $1), $2, ($3 == "" ? "none" : $3), ($4 == "" ? "-" : $4) }' | LC_ALL=C sort -k1,1n -k2,2
+    printf '%s %s %s %s %s\n' "$(header "$f" order || true)" "$id" "$(header "$f" tool || true)" "$(header "$f" class || true)" "$(header "$f" scope || true)"
+  done | awk '{ printf "%s %s %s %s %s\n", ($1 == "" ? 999 : $1), $2, ($3 == "" ? "none" : $3), ($4 == "" ? "-" : $4), ($5 == "" ? "default" : $5) }' | LC_ALL=C sort -k1,1n -k2,2
 )
 
 # The class of every check is one of four. A check without one fails the gate.
@@ -86,6 +90,13 @@ for i in "${!IDS[@]}"; do
       ;;
     *)
       printf 'quality-gate: %s: unknown class "%s" (expected generic, template, platform, or project)\n' "${IDS[$i]}" "${CLASSES[$i]}" | LC_ALL=C sed -e 's/[[:cntrl:]]//g' -e 's/::/: :/g' >&2
+      BAD_CLASS=1
+      ;;
+  esac
+  case ${SCOPES[$i]} in
+    default | all) ;;
+    *)
+      printf 'quality-gate: %s: unknown scope "%s" (expected all, or no scope header)\n' "${IDS[$i]}" "${SCOPES[$i]}" | LC_ALL=C sed -e 's/[[:cntrl:]]//g' -e 's/::/: :/g' >&2
       BAD_CLASS=1
       ;;
   esac
@@ -116,10 +127,10 @@ listed() { # listed ID ARRAY-ELEMENTS...
   return 1
 }
 
-# File list: tracked files (or changed since BASE), regular files only. Fixtures under
-# tests/*/fixtures/ are inputs to the tests, not repository content.
+# File list: tracked files (or changed since BASE), regular files only. Fixtures under tests/*/fixtures/ are inputs to the
+# tests, not repository content: the checks do not see them, except a check that declares "# scope: all".
 git -C "$ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1 || usage_error "not a git work tree: $ROOT"
-FILES=()
+FILES=() ALL_FILES=()
 if [[ -n $BASE ]]; then
   merge_base=$(git -C "$ROOT" merge-base "$BASE" HEAD 2>/dev/null) || usage_error "cannot resolve --base $BASE"
   # The policy inputs of the checks are read from this commit, not from the head that is being judged.
@@ -130,12 +141,19 @@ else
   list_cmd=(git -C "$ROOT" -c core.quotepath=off ls-files -z)
 fi
 while IFS= read -r -d '' path; do
-  case $path in *$'\n'*) continue ;; tests/*/fixtures/*) continue ;; esac
-  if [[ -f $ROOT/$path ]]; then FILES+=("$path"); fi
+  case $path in *$'\n'*) continue ;; esac
+  if [[ -f $ROOT/$path ]]; then
+    ALL_FILES+=("$path")
+    case $path in tests/*/fixtures/*) ;; *) FILES+=("$path") ;; esac
+  fi
 done < <("${list_cmd[@]}")
 
-emit_files() {
-  if [[ ${#FILES[@]} -gt 0 ]]; then printf '%s\n' "${FILES[@]}"; fi
+emit_files() { # emit_files SCOPE
+  if [[ $1 == all ]]; then
+    if [[ ${#ALL_FILES[@]} -gt 0 ]]; then printf '%s\n' "${ALL_FILES[@]}"; fi
+  elif [[ ${#FILES[@]} -gt 0 ]]; then
+    printf '%s\n' "${FILES[@]}"
+  fi
 }
 
 # Findings are untrusted text (paths, tool messages): drop control characters and neutralise
@@ -150,7 +168,7 @@ for i in "${!IDS[@]}"; do
   if [[ ${#ONLY[@]} -gt 0 ]] && ! listed "$id" "${ONLY[@]}"; then continue; fi
   if [[ ${#SKIP[@]} -gt 0 ]] && listed "$id" "${SKIP[@]}"; then continue; fi
   rc=0
-  out=$(cd "$ROOT" && "$BASH" "$CHECK_DIR/$id.sh" < <(emit_files)) || rc=$?
+  out=$(cd "$ROOT" && "$BASH" "$CHECK_DIR/$id.sh" < <(emit_files "${SCOPES[$i]}")) || rc=$?
   case $rc in
     0)
       PASSED=$((PASSED + 1))

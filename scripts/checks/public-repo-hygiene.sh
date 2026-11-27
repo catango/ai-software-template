@@ -2,6 +2,7 @@
 # tool: none
 # order: 30
 # class: generic
+# scope: all
 # No resource identifiers, IPv4 addresses, emails, key fingerprints, private keys, or tokens.
 # Findings give the path, line, and kind only; the matched text is never printed.
 # One account handle is accepted anywhere it is meant to be public: the single seeded CODEOWNERS line `* @<login>`.
