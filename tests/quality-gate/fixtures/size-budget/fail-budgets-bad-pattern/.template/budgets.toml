@@ -1,0 +1,18 @@
+schema_version = 1
+
+[class.rule]
+paths = [".claude/rules/*.md"]
+max_lines = 3
+max_bytes = 60
+
+[class.skill-description]
+paths = [".claude/skills/*/SKILL.md"]
+max_chars = 20
+
+[class.imported-doc]
+paths = ["docs/PLATFORM.md"]
+max_lines = 2
+
+[class.bad]
+paths = ["/abs"]
+max_lines = 1

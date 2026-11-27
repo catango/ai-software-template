@@ -1,0 +1,6 @@
+[[budget]]
+class = "rule"
+key = "max_lines"
+value = 2
+reason = "the rule needs the room"
+pr = "owner/repo#12"

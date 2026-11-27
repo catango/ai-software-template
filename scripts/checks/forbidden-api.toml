@@ -1,0 +1,172 @@
+# Data of the gate check `forbidden-api` (scripts/checks/forbidden-api.sh).
+#
+# A script may not call these. Endpoints are written as normalised paths: no leading slash, no query, no host,
+# and every variable part replaced by "{}". `methods = "write"` forbids every method except GET and HEAD, so reading
+# stays possible; a method that is not a literal counts as a write. GraphQL names are matched as whole words anywhere
+# in a script. Replying on a review thread, creating a pull request, a comment or an issue, and marking a pull request
+# ready are not listed on purpose.
+
+schema_version = 1
+
+# ---- REST: merge, review submission, rulesets, collaborators, repository settings
+
+[[rest]]
+class = "merge"
+paths = ['^repos/\{\}/\{\}/pulls/\{\}/merge$']
+
+[[rest]]
+class = "review-submission"
+paths = [
+  '^repos/\{\}/\{\}/pulls/\{\}/reviews$',
+  '^repos/\{\}/\{\}/pulls/\{\}/reviews/\{\}$',
+  '^repos/\{\}/\{\}/pulls/\{\}/reviews/\{\}/(events|dismissals)$',
+]
+
+[[rest]]
+class = "ruleset"
+paths = ['^(repos|orgs)/\{\}(/\{\})?/rulesets(/.*)?$']
+
+[[rest]]
+class = "collaborator"
+paths = [
+  '^repos/\{\}/\{\}/collaborators(/.*)?$',
+  '^repos/\{\}/\{\}/invitations(/.*)?$',
+  '^user/repository_invitations(/.*)?$',
+]
+
+[[rest]]
+class = "repository-settings"
+paths = [
+  '^repos/\{\}/\{\}$',
+  '^repos/\{\}/\{\}/(topics|transfer)$',
+]
+
+# ---- REST: the classes added by the security baseline
+
+[[rest]]
+class = "commit-status-or-check-run"
+paths = [
+  '^repos/\{\}/\{\}/statuses/\{\}$',
+  '^repos/\{\}/\{\}/check-runs(/.*)?$',
+  '^repos/\{\}/\{\}/check-suites(/.*)?$',
+]
+
+[[rest]]
+class = "alert-state"
+paths = [
+  '^repos/\{\}/\{\}/code-scanning/alerts/\{\}(/.*)?$',
+  '^repos/\{\}/\{\}/secret-scanning/alerts/\{\}(/.*)?$',
+  '^repos/\{\}/\{\}/dependabot/alerts/\{\}$',
+]
+
+[[rest]]
+class = "push-protection-bypass"
+paths = ['^repos/\{\}/\{\}/secret-scanning/push-protection-bypasses$']
+
+[[rest]]
+class = "branch-protection"
+paths = ['^repos/\{\}/\{\}/branches/\{\}/protection(/.*)?$']
+
+[[rest]]
+class = "secret-or-variable"
+paths = [
+  '^(repos|orgs)/\{\}(/\{\})?/actions/(secrets|variables)(/.*)?$',
+  '^(repos|orgs)/\{\}(/\{\})?/dependabot/secrets(/.*)?$',
+  '^(repos|orgs)/\{\}(/\{\})?/codespaces/secrets(/.*)?$',
+]
+
+[[rest]]
+class = "environment"
+paths = ['^repos/\{\}/\{\}/environments(/.*)?$']
+
+[[rest]]
+class = "webhook"
+paths = ['^(repos|orgs)/\{\}(/\{\})?/hooks(/.*)?$']
+
+[[rest]]
+class = "deploy-key"
+paths = ['^repos/\{\}/\{\}/keys(/.*)?$']
+
+[[rest]]
+class = "actions-permissions-or-runner"
+paths = [
+  '^(repos|orgs)/\{\}(/\{\})?/actions/permissions(/.*)?$',
+  '^(repos|orgs)/\{\}(/\{\})?/actions/runners(/.*)?$',
+  '^(repos|orgs)/\{\}(/\{\})?/actions/runner-groups(/.*)?$',
+  '^(repos|orgs)/\{\}(/\{\})?/actions/oidc(/.*)?$',
+]
+
+[[rest]]
+class = "security-feature-toggle"
+paths = [
+  '^repos/\{\}/\{\}/vulnerability-alerts$',
+  '^repos/\{\}/\{\}/automated-security-fixes$',
+  '^repos/\{\}/\{\}/private-vulnerability-reporting$',
+  '^repos/\{\}/\{\}/code-scanning/default-setup$',
+]
+
+[[rest]]
+class = "release-or-tag-ref"
+paths = [
+  '^repos/\{\}/\{\}/releases(/.*)?$',
+  '^repos/\{\}/\{\}/git/refs(/.*)?$',
+  '^repos/\{\}/\{\}/git/tags(/.*)?$',
+]
+
+# ---- GraphQL mutations (whole words)
+
+[[graphql]]
+class = "merge"
+names = ["mergePullRequest"]
+
+[[graphql]]
+class = "auto-merge"
+names = ["enablePullRequestAutoMerge", "disablePullRequestAutoMerge"]
+
+[[graphql]]
+class = "review-submission"
+names = ["addPullRequestReview", "submitPullRequestReview", "updatePullRequestReview", "deletePullRequestReview", "dismissPullRequestReview"]
+
+[[graphql]]
+class = "ruleset"
+names = ["createRepositoryRuleset", "updateRepositoryRuleset", "deleteRepositoryRuleset"]
+
+[[graphql]]
+class = "repository-settings"
+names = [
+  "createRepository", "updateRepository", "deleteRepository", "archiveRepository", "unarchiveRepository", "transferRepository",
+  "updateRepositoryWebCommitSignoffSetting", "updateTopics",
+]
+
+[[graphql]]
+class = "branch-protection"
+names = ["createBranchProtectionRule", "updateBranchProtectionRule", "deleteBranchProtectionRule"]
+
+[[graphql]]
+class = "check-run"
+names = ["createCheckRun", "updateCheckRun", "createCheckSuite", "updateCheckSuitePreferences", "rerequestCheckSuite"]
+
+[[graphql]]
+class = "alert-state"
+names = ["dismissRepositoryVulnerabilityAlert", "reopenRepositoryVulnerabilityAlert"]
+
+[[graphql]]
+class = "tag-ref-or-release"
+names = ["createRef", "updateRef", "deleteRef", "createRelease", "updateRelease", "deleteRelease"]
+
+# ---- command line
+
+# `gh <group>` of any subcommand; `gh pr <sub>` for the listed subcommands.
+[command]
+gh_groups = ["release", "repo", "secret", "variable", "ruleset"]
+gh_pr = ["merge", "review"]
+# `git tag` with any arguments, and a push that carries tags.
+git_push_flags = ["--tags", "--mirror", "--follow-tags"]
+
+# ---- the literal-URL rule for Python HTTP clients
+
+# A file listed here may pass a variable URL to a Python HTTP client. The classes above still apply to its literals. Each entry
+# is reviewed with the owned data file; a project cannot add one (the file is owned and `owned-drift` fails a change).
+[[literal_exempt]]
+path = "toolchain/toolchain_engine/fetch.py"
+reason = "downloads the artifact URLs of the CI manifest with GET only, no credentials, https only (engine tests)"

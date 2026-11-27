@@ -1,0 +1,23 @@
+name: ci
+on:
+  pull_request:
+    types: [opened, synchronize]
+  push:
+    branches: [main]
+permissions: {}
+jobs:
+  quality-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/local
+      - name: Show
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          echo "$TITLE"

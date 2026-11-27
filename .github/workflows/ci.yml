@@ -1,0 +1,155 @@
+name: ci
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  push:
+    branches: [main]
+
+permissions: {}
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # Plans the matrix from the architectures of config/project.yaml and the private flag of the repository itself
+  # (github.event.repository.private, never a value of the configuration). It runs on the base runner because no label
+  # is known before it has read the configuration. scripts/lib/ci_matrix.py holds the logic and has fixture tests.
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      # The full history, so that the base commit of a pull request is there.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # yq turns the configuration into JSON. It comes from the CI manifest, checksum-verified.
+      - name: Install yq
+        shell: bash
+        run: |
+          python3 -I toolchain/install install --profile gate --only yq --prefix "$RUNNER_TEMP/plan-tools"
+          echo "$RUNNER_TEMP/plan-tools/bin" >> "$GITHUB_PATH"
+
+      - name: Plan the matrix
+        id: plan
+        shell: bash
+        env:
+          PRIVATE: ${{ github.event.repository.private }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          # On a pull request the architectures and runners come from the base commit, so a change cannot blank the runner of
+          # its own check. Where the base has no configuration yet (the first one), and on a push, the checkout is read.
+          if [[ -n $BASE_SHA ]] && git cat-file -e "$BASE_SHA:config/project.yaml" 2>/dev/null; then
+            git show "$BASE_SHA:config/project.yaml" | yq -o=json '.' -
+          else
+            yq -o=json '.' config/project.yaml
+          fi | python3 -I scripts/lib/ci_matrix.py plan --manifest toolchain/ci-manifest.toml --private "$PRIVATE"
+
+  # The gate on every configured architecture. A leg for an architecture that has no runner for this repository runs on the
+  # base runner and says "not run: <arch>"; the aggregate below repeats that, so one place lists what no runner covered.
+  gate:
+    name: quality-gate-${{ matrix.arch }}
+    needs: [plan]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Not run
+        if: matrix.run == 'false'
+        shell: bash
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          echo "not run: $ARCH"
+          echo "not run: $ARCH" >> "$GITHUB_STEP_SUMMARY"
+
+      # The gate tools come from the CI manifest (checksum-verified, hash-locked) into a temporary prefix.
+      - name: Install the gate tools
+        if: matrix.run == 'true'
+        shell: bash
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          python3 -I toolchain/install install --profile gate --arch "$ARCH" --prefix "$RUNNER_TEMP/toolchain"
+          echo "$RUNNER_TEMP/toolchain/bin" >> "$GITHUB_PATH"
+
+      # The policy inputs of the checks (allowed actions, runner labels) come from the base commit of a pull request, never from the
+      # head being judged. The environment variable keeps every file in scope; --base would narrow the gate to changed files.
+      - name: Quality gate
+        if: matrix.run == 'true'
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [[ -n $BASE_SHA ]] && git cat-file -e "$BASE_SHA:config/project.yaml" 2>/dev/null; then
+            export GATE_BASE_REF=$BASE_SHA
+          fi
+          ./scripts/quality-gate.sh --strict
+
+  # The one required check of this workflow. It needs every other job, always runs, and fails unless each needed job
+  # succeeded: a skipped or cancelled job is not a pass. A matrix job counts once (its combined result). It checks out nothing
+  # and runs no repository code.
+  quality-gate:
+    needs: [plan, gate]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Fail unless every needed job succeeded
+        shell: bash
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          python3 -I - <<'PY'
+          import json
+          import os
+          import sys
+
+          try:
+              needs = json.loads(os.environ["NEEDS"])
+          except (KeyError, ValueError):
+              needs = None
+          if not isinstance(needs, dict) or not needs:
+              print("quality-gate: the needs context is empty or unreadable")
+              sys.exit(1)
+          rows = sorted((name, str(job.get("result", "")) if isinstance(job, dict) else "") for name, job in needs.items())
+          lines = [f"{name}: {result or 'unknown'}" for name, result in rows]
+          print("\n".join(lines))
+          not_run = []
+          try:
+              plan = json.loads(needs["plan"]["outputs"]["matrix"])
+              not_run = [entry["arch"] for entry in plan["include"] if entry.get("run") == "false"]
+          except (KeyError, TypeError, ValueError):
+              pass
+          for arch in not_run:
+              print(f"not run: {arch}")
+          summary = os.environ.get("GITHUB_STEP_SUMMARY")
+          if summary:
+              with open(summary, "a", encoding="utf-8") as handle:
+                  handle.write("### quality-gate\n\n| Job | Result |\n|---|---|\n")
+                  handle.write("".join(f"| {name} | {result or 'unknown'} |\n" for name, result in rows))
+                  if not_run:
+                      handle.write("\nNo runner for this repository, so the gate did not run on:\n\n")
+                      handle.write("".join(f"- not run: {arch}\n" for arch in not_run))
+          bad = [name for name, result in rows if result != "success"]
+          if bad:
+              print("quality-gate: not successful: " + ", ".join(bad))
+              sys.exit(1)
+          PY

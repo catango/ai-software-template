@@ -1,0 +1,36 @@
+name: template-ci
+on:
+  pull_request:
+    types: [opened, synchronize]
+  push:
+    branches: [main]
+permissions: {}
+jobs:
+  alpha:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567 # v4.2.2
+        with:
+          persist-credentials: false
+      - run: echo ok
+  beta:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567 # v4.2.2
+        with:
+          persist-credentials: false
+      - run: echo ok
+  template-ci:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [alpha]
+    if: always()
+    permissions: {}
+    steps:
+      - run: echo ok

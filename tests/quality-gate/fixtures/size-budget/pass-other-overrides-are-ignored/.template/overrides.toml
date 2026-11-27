@@ -1,0 +1,4 @@
+[[override]]
+path = "CLAUDE.md"
+reason = "x"
+pr = "o/r#1"

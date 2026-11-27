@@ -1,0 +1,9 @@
+name: ci
+on: push
+permissions: {}
+jobs:
+  x:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          gh api graphql -f query='mutation { mergePullRequest(input: {}) { clientMutationId } }'

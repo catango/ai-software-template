@@ -1,0 +1,3 @@
+schema_version: 1
+# A configuration may list a runner label of its own; the code holds no default label of any architecture.
+runner_labels: [ubuntu-latest, runner-x]

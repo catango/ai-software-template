@@ -243,7 +243,7 @@ class GenerationTests(TempDirTestCase):
         for expected in ("approver_id: 2000002", 'approver_login: "example-lead"',
                          'machine_login: "example-agent"', 'name: "other-service"',
                          '"example-org/design-records"', '"ops/scripts/"',
-                         'name: "arch-b"', 'runner_private: ""',
+                         'name: "arm64"', 'runner_private: ""',
                          'source: "example-org/starter-template"'):
             self.assertIn(expected, text)
         for absent in ("visibility", "post_init_actions", "platform_doc", "deny_platform"):
@@ -354,7 +354,7 @@ class GenerationTests(TempDirTestCase):
             "dot design repository": good.replace("design_repos = []", 'design_repos = ["example-owner/."]'),
             "bad schema version": good.replace("schema_version = 1", "schema_version = 9"),
             "no architecture": good.split("[[architectures]]")[0],
-            "duplicate architecture": good + '\n[[architectures]]\nname = "arch-a"\nrunner = ""\nrunner_private = ""\n',
+            "duplicate architecture": good + '\n[[architectures]]\nname = "amd64"\nrunner = ""\nrunner_private = ""\n',
             "newline in description": good.replace("Sample application", "Sample\\napplication"),
             "absolute operator path": good.replace("operator_paths = []", 'operator_paths = ["/etc/x"]'),
             "parent operator path": good.replace("operator_paths = []", 'operator_paths = ["../x"]'),

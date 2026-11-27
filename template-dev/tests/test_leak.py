@@ -16,8 +16,9 @@ from helpers import ROOT, TempDirTestCase
 PATTERNS = ROOT / "template-dev" / "leak" / "patterns.toml"
 
 # Files that carry configuration data by design and may therefore hold architecture names
-# and runner labels (the values come from the configuration).
-ARCH_DATA_FILES = frozenset({"config/project.yaml"})
+# and runner labels: the configuration, and the CI manifest, which declares the architectures
+# it has artifacts for (the install engine itself names none).
+ARCH_DATA_FILES = frozenset({"config/project.yaml", "toolchain/ci-manifest.toml"})
 
 
 def dotted(*parts):
@@ -86,7 +87,7 @@ class PatternTests(TempDirTestCase):
 
     def test_clean_text_has_no_findings(self):
         text = "Use ${{ github.event.repository.private }} and docs/cr/CR-<n>/ and ADR-<n>.\n" \
-               "Versions 1.2.3 and 10.20.30.40.50 are not addresses; arch-a is a neutral name."
+               "Versions 1.2.3 and " + ".".join(["10", "20", "30", "40", "50"]) + " are not addresses; arch-a is a neutral name."
         self.assertEqual(self.scan_text(text, scope="generated"), [])
 
     def test_ipv6_needs_eight_groups_or_a_compressed_form(self):

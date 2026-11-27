@@ -1,0 +1,73 @@
+# Hash-locked requirements for the CI manifest (toolchain/ci-manifest.toml).
+# Top-level pins: toolchain/python/ci.in. Installed with: pip install --require-hashes --only-binary :all: --no-deps -r this-file
+# Closure resolved from PyPI metadata (requires_dist) for CPython 3.12 and 3.13.
+# Hashes: every wheel of the pinned release that is pure Python or built for CPython 3.12/3.13 on Linux (manylinux and musllinux) for the
+# machine types that toolchain/ci-manifest.toml declares, so one lock serves every declared architecture. Source distributions are not locked.
+
+yamllint==1.38.0 \
+    --hash=sha256:fc394a5b3be980a4062607b8fdddc0843f4fa394152b6da21722f5d59013c220
+
+pymarkdownlnt==0.9.42 \
+    --hash=sha256:31565c3241824922c2bd56eb7cc072b21fed59f6faccb1c23fb9e24af9bd7805
+
+application-file-scanner==0.6.4 \
+    --hash=sha256:49c211c60f1932812477facc38701d58037b07b031fdb6a6061fdee3fd53e35f
+
+application-properties==0.9.3 \
+    --hash=sha256:32dbd62b3fb657ec1c7fdc352590463c2ffd14950ffd258a5c091e8798d8aec0
+
+columnar==1.4.1 \
+    --hash=sha256:8efb692a7e6ca07dcc8f4ea889960421331a5dffa8e5af81f0a67ad8ea1fc798
+
+pathspec==1.1.1 \
+    --hash=sha256:a00ce642f577bf7f473932318056212bc4f8bfdf53128c78bbd5af0b9b20b189
+
+py-walk==0.3.3 \
+    --hash=sha256:238fc018165138021ce0bfd9c351cdc473d3120ccc5534df35611b92608c94d5
+
+pyjson5==2.0.1 \
+    --hash=sha256:04b4929a7adf0e0720da92ac54c92d408e8057158be3ccc34da17c7767a9af78 \
+    --hash=sha256:6d178025a5317db44663dc87aab90f34674991b3da40dbedc3c108e7b03b6466 \
+    --hash=sha256:8e158caf0dd7fbf7afe12f92fcc9cba26bceac4b38615c087fd592e9e3240d9f \
+    --hash=sha256:8fcc96c429888f2293f672e33d01da8a0847cd5116a773c9a1903b8bc2f12bc1 \
+    --hash=sha256:bc3181274ed19ecb2315cf85a499bf83002554f42c72453666c616059d665a7b \
+    --hash=sha256:0e042f9b869e7f21d5f53a2638e5d0cf1daaba2342127c8777c502daf972602e \
+    --hash=sha256:3cb163a495096716a7a01d052b60bda0308ecfaeddcb2d50a247ba9d707e3e40 \
+    --hash=sha256:c9dca542eeb6e8fbbc1fe3373bfd18ae6250f1aedc78f39242ac12c8837091b8
+
+pyyaml==6.0.3 \
+    --hash=sha256:9149cad251584d5fb4981be1ecde53a1ca46c891a79788c0df828d2f166bda28 \
+    --hash=sha256:ba1cc08a7ccde2d2ec775841541641e4548226580ab850948cbfda66a1befcdc \
+    --hash=sha256:8dc52c23056b9ddd46818a57b78404882310fb473d63f17b07d5c40421e47f8e \
+    --hash=sha256:41715c910c881bc081f1e8872880d3c650acf13dfa8214bad49ed4cede7c34ea \
+    --hash=sha256:ee2922902c45ae8ccada2c5b501ab86c36525b883eff4255313a253a3160861c \
+    --hash=sha256:0f29edc409a6392443abf94b9cf89ce99889a1dd5376d94316ae5145dfedd5d6 \
+    --hash=sha256:f7057c9a337546edc7973c0d3ba84ddcdf0daa14533c2065749c9075001090e6 \
+    --hash=sha256:eda16858a3cab07b80edaf74336ece1f986ba330fdb8ee0d6c0d68fe82bc96be
+
+sly==0.5 \
+    --hash=sha256:20485483259eec7f6ba85ff4d2e96a4e50c6621902667fc2695cc8bc2a3e5133
+
+tomli==2.5.0 \
+    --hash=sha256:bf0b5e8e0f68ebb494356e577c06c139161efd8d3b9050f93b39b7c26cc54ff0 \
+    --hash=sha256:6cf74416bdc94ae458b14e37286c1073081850ac8459a00d0c5efef5d44294c6 \
+    --hash=sha256:61ea1ebe1e55a34ea8199cc8dbff398d35027b82271c8ac4802fd3a1fd5b1bcc \
+    --hash=sha256:ed53f7e89bb04f6d9e8e7799112360b0c4d5cbff067de0814c98c37c39b920f7 \
+    --hash=sha256:1245a6638fc4bb0a60af38a7d45413db34a13842027c77597c712c998c62fdf0 \
+    --hash=sha256:5d8bac3d603c97e6854424e5b2b5b741bdbde387e09f162fb0446812b4a8362b \
+    --hash=sha256:21e4cae4114aba25aa0d4f85cdf486d290fb35c0954d7bba536248da64d43066 \
+    --hash=sha256:bbaefc84548d754be821bba7c4141c4787dda182f9e77f2f87b71213529efa7b \
+    --hash=sha256:32a7b79ac57a2e83670ce329ccf675798bc5a2094783a63676866b70503f2e2b
+
+toolz==1.2.0 \
+    --hash=sha256:890f820b1cb8152785aaf9386d8707770110809035800985ca65cb24ce1120ef
+
+typing-extensions==4.16.0 \
+    --hash=sha256:481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8
+
+wcwidth==0.9.4 \
+    --hash=sha256:093469e01d881bff3db93ff3f56c364dc87c441ea01f9f41c22de0c0bdf5c6ef \
+    --hash=sha256:b185c8b927b23af2721be1783499d1cfa5c028b098b0858951b4ae224477f1c2 \
+    --hash=sha256:17619066f95c10f44d7ae08ee456602456bc66cc9d5e91966ec73d799acebc5f \
+    --hash=sha256:d8905f1390d828d745fdd1904374c90386d902d3cfa9ee88e9875099f75a4e17 \
+    --hash=sha256:901eace6d2dd25ebb917d0ce5db18e5c537e1504c905cf32f0d006c12098b05d

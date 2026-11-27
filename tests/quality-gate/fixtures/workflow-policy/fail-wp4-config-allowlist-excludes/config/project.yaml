@@ -1,0 +1,3 @@
+schema_version: 1
+allowed_actions:
+  - actions/checkout

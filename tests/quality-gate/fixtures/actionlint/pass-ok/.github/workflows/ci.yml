@@ -1,0 +1,10 @@
+name: ci
+on:
+  push:
+    branches: [main]
+permissions: {}
+jobs:
+  demo:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo hello

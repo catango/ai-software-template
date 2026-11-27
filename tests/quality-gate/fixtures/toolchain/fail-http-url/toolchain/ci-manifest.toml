@@ -1,0 +1,18 @@
+schema_version = 1
+
+[architectures]
+arch-a = ["machine-arch-a"]
+
+[tools.demo]
+version     = "1.2.3"
+profiles    = ["gate"]
+source      = "download"
+format      = "tar.gz"
+strip       = 1
+binaries    = ["demo"]
+smoke       = ["demo", "--version"]
+smoke_match = "1.2.3"
+
+[tools.demo.artifacts.arch-a]
+url    = "http://example.invalid/demo/1.2.3/demo-arch-a.tar.gz"
+sha256 = "0000000000000000000000000000000000000000000000000000000000000001"

@@ -1,0 +1,5 @@
+schema_version: 1
+allowed_actions:
+  - actions/checkout
+  - someorg/some-action
+  - actions/setup-node

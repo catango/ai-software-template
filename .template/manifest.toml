@@ -53,6 +53,7 @@ owned = [
   "scripts/initialize-project",
   "scripts/template-sync",
   "toolchain/",
+  "tests/quality-gate/",
   "docs/adr/_template.md",
   "docs/cr/_template/",
 ]

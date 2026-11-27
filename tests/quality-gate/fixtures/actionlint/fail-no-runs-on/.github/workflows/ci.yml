@@ -1,0 +1,9 @@
+name: ci
+on:
+  push:
+    branches: [main]
+permissions: {}
+jobs:
+  demo:
+    steps:
+      - run: echo hello

@@ -18,5 +18,6 @@ repository carries it, and the payload keeps no change request or ADR instance u
 |---|---|---|
 | Software template design, ADR, acceptance criteria (T-1 to T-22), implementation plan | `catango/ai-lab-platform#39` (design: `catango/ai-lab-platform#40`) | Stays in the platform repository as the one transitional exception. Not copied here |
 | [Manifest and configuration schema](manifest-and-config.md) | this directory | How the skeleton (plan row 1) fixes what the design left open |
+| [Quality gate, install engine, and CI](gate.md) | this directory | What plan row 2 built, how the seeded code changed, and the points for the approver |
 
 No change request or ADR of this repository exists yet.

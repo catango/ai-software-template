@@ -1,0 +1,51 @@
+# Size budgets read by the gate check `size-budget` (owned; never replaced as a whole file).
+#
+# A budget limits the lines (newline count), bytes, or characters of the files its `paths` match
+# (patterns of the manifest syntax: an exact path, `dir/`, `*`, `?`, `**`). A class that matches no file passes.
+# A project raises one value, never the file, with a `[[budget]]` entry in `.template/overrides.toml`:
+#
+#   [[budget]]
+#   class  = "rule"
+#   key    = "max_bytes"
+#   value  = 4096
+#   reason = "why the rule needs the room"
+#   pr     = "owner/repo#12"
+#
+# Bytes are exact and stable; tokens are never computed or gated. Values are a judgement.
+
+schema_version = 1
+
+[class.claude-md]
+paths = ["CLAUDE.md"]
+max_lines = 120
+max_bytes = 10240
+
+[class.imported-doc]
+paths = ["docs/PLATFORM.md", "docs/PROJECT.md"]
+max_lines = 80
+max_bytes = 6144
+
+[class.rule]
+paths = [".claude/rules/*.md"]
+max_lines = 40
+max_bytes = 3072
+
+[class.skill]
+paths = [".claude/skills/*/SKILL.md"]
+max_lines = 60
+max_bytes = 4096
+
+# The `description:` field of the frontmatter of a SKILL.md, in characters.
+[class.skill-description]
+paths = [".claude/skills/*/SKILL.md"]
+max_chars = 300
+
+[class.docs-readme]
+paths = ["docs/README.md"]
+max_lines = 80
+max_bytes = 8192
+
+[class.cr-readme]
+paths = ["docs/cr/*/README.md"]
+max_lines = 50
+max_bytes = 4096
