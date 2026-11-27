@@ -67,6 +67,13 @@ contains() { grep -qF -- "$2" <<<"$1"; }
 
 list_files() { (cd "$1" && find . -type f ! -name EXPECT ! -name SECRET | sed 's|^\./||' | LC_ALL=C sort); }
 
+# unfixture DIR: a fixture file named CLAUDE.md.fixture or CLAUDE.local.md.fixture becomes the file without the suffix, so that the
+# tracked tree holds no instruction file of that name (the gate's claude-md check sees the whole tree, fixtures included).
+unfixture() {
+  local f
+  while IFS= read -r -d '' f; do mv "$f" "${f%.fixture}"; done < <(find "$1" -type f \( -name 'CLAUDE.md.fixture' -o -name 'CLAUDE.local.md.fixture' \) -print0)
+}
+
 run_dir() { # id name dir
   local id=$1 name=$2 dir=$3 tool tmp files out rc expect
   tool=$(header "$id" tool)
@@ -78,6 +85,7 @@ run_dir() { # id name dir
   cp -R "$dir/." "$tmp/"
   find "$tmp" -type f -name '*.sh' ! -name 'noexec*' -exec chmod 755 {} +
   find "$tmp" -type f -name 'noexec*' -exec chmod 644 {} +
+  unfixture "$tmp"
   files=$(list_files "$tmp")
   rc=0
   out=$(cd "$tmp" && "$BASH" "$CHECKS/$id.sh" <<<"$files" 2>&1) || rc=$?
@@ -659,6 +667,7 @@ gen_claude_md_cases() {
   mk() { # name: a copy of the passing fixture
     mkdir -p "$d/$1"
     cp -R "$src/." "$d/$1/"
+    unfixture "$d/$1"
   }
   mk fail-cites-a-change-request
   printf '\nSee %s-%s for the reason.\n' "$cr" 12 >>"$d/fail-cites-a-change-request/docs/PROJECT.md"
@@ -673,12 +682,35 @@ gen_claude_md_cases() {
   printf '\nPlatform records: %s-%s.\n' "$adr" 11 >>"$d/pass-record-number-in-the-seeded-platform-file/docs/PLATFORM.md"
   mk pass-state-hash-matches
   mkdir -p "$d/pass-state-hash-matches/.template"
-  printf 'schema_version = 1\n\n[owned]\n"CLAUDE.md" = "%s"\n' "$(sha256sum "$src/CLAUDE.md" | cut -d' ' -f1)" >"$d/pass-state-hash-matches/.template/state.toml"
+  printf 'schema_version = 1\n\n[owned]\n"CLAUDE.md" = "%s"\n' "$(sha256sum "$src/CLAUDE.md.fixture" | cut -d' ' -f1)" >"$d/pass-state-hash-matches/.template/state.toml"
   mk fail-edited-after-the-hash-was-recorded
   mkdir -p "$d/fail-edited-after-the-hash-was-recorded/.template"
-  printf 'schema_version = 1\n\n[owned]\n"CLAUDE.md" = "%s"\n' "$(sha256sum "$src/CLAUDE.md" | cut -d' ' -f1)" >"$d/fail-edited-after-the-hash-was-recorded/.template/state.toml"
+  printf 'schema_version = 1\n\n[owned]\n"CLAUDE.md" = "%s"\n' "$(sha256sum "$src/CLAUDE.md.fixture" | cut -d' ' -f1)" >"$d/fail-edited-after-the-hash-was-recorded/.template/state.toml"
   printf '\n- Never mind.\n' >>"$d/fail-edited-after-the-hash-was-recorded/CLAUDE.md"
   printf '%s\n' "differs from its hash" >"$d/fail-edited-after-the-hash-was-recorded/EXPECT"
+}
+
+# claude-md sees the whole tracked tree, the inputs of tests (tests/*/fixtures/) included: Claude Code loads a CLAUDE.md that sits
+# next to any file it reads, so one hidden there would still be an instruction file.
+test_claude_md_scope() {
+  local repo
+  repo=$(new_repo)
+  cp -R "$FIXTURES/claude-md/pass-ok/." "$repo/"
+  unfixture "$repo"
+  commit_all "$repo" base
+  gate "$repo" --only claude-md
+  rc_is "claude-md: a tree that follows the rules passes" 0
+  mkdir -p "$repo/tests/unit/fixtures/case"
+  printf '# hidden\n' >"$repo/tests/unit/fixtures/case/CLAUDE.md"
+  commit_all "$repo" nested
+  gate "$repo" --only claude-md
+  rc_is "claude-md: a CLAUDE.md under tests/*/fixtures/ is found" 1
+  out_has "claude-md: the finding names the path" "tests/unit/fixtures/case/CLAUDE.md:1"
+  rm "$repo/tests/unit/fixtures/case/CLAUDE.md"
+  printf 'x\n' >"$repo/tests/unit/fixtures/case/CLAUDE.local.md"
+  commit_all "$repo" local
+  gate "$repo" --only claude-md
+  rc_is "claude-md: a CLAUDE.local.md under tests/*/fixtures/ is found" 1
 }
 
 # ---------------------------------------------------------------- operator-contract (policy from the base commit)
@@ -932,6 +964,7 @@ PY
 if want dispatcher; then test_dispatcher; fi
 if want classes; then test_classes; fi
 if want workflow-policy; then test_workflow_policy; fi
+if want claude-md; then test_claude_md_scope; fi
 if want operator-contract; then test_operator_contract; fi
 if want operator_guard; then test_operator_guard; fi
 if want instructions; then test_instruction_files; fi
