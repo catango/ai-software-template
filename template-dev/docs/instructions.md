@@ -124,10 +124,21 @@ decision 9 are in `CLAUDE.md`.
    this row put them in the platform list, and the platform's own file says its preset adds no rule. This row follows the design: the
    core list names no infrastructure tool. The platform's preset PR must carry them in its `deny.platform.txt`, or the design should
    say they are core.
-2. **Platform deny entries in an owned file.** See the section on the seeds. Init merges them into `settings.json`; the design says a
-   project addition is "a divergence that goes through `overrides.toml`", but init writes no override entry because the format and the
-   PR reference belong to row 8. Row 8 has to make `template-sync` keep the merged entries, or the design has to move them elsewhere
-   (for example a second settings file that the gate reads).
+2. **Platform deny entries in an owned file (open; two problems, both found in review).** Init merges the entries of a preset's
+   `deny.platform.txt` into the owned `.claude/settings.json`, because `deny-list` wants them there. (a) **TC-2 refuses it.** An init PR may
+   write only seeded paths, and the merge changes an owned file, so the first init PR of a repository with a preset deny list fails
+   `pr-contract` with `TC-2: written path is not seeded: .claude/settings.json`. A test (`InitPullRequestTC2` in
+   `template-dev/tests/test_instructions.py`) runs TC-2 on the file list of a generated tree: it passes without preset entries, and
+   with them the failure is exactly that path (the test is marked as an expected failure until this is decided). (b) **Template-sync**
+   overwrites owned files and would drop the entries (row 8). Options: (1) TC-2 accepts, for `.claude/settings.json` only, a change
+   that appends entries to `permissions.deny` that are all listed in the head's `.claude/deny.platform.txt`, and row 8 regenerates
+   `settings.json` from the new core list plus the seeded list, so no override entry is needed; (2) the platform entries live only in
+   the seeded list, `settings.json` stays byte-identical to the template, and `deny-list` checks the seeded list's syntax but not its
+   presence in `settings.json`; the entries then reach Claude Code through a layer outside the repository (the platform's user-level
+   settings), which the gate cannot verify; (3) init writes an override entry for `settings.json` and TC-2 accepts that file in an init
+   PR; this needs the override format of row 8. **Recommendation: option 1.** It keeps the design's rule that the gate sees both
+   lists in `settings.json`, makes the file a pure function of two inputs (so sync and `owned-drift` need no special case), and
+   widens TC-2 by one narrow, checkable exemption. Nothing beyond the test is implemented until the approver decides.
 3. **The subprocess allowlist and `operator_endpoints`.** A new optional key `workflow.operator_commands` carries the allowlist. ADR-009
    decision 14 describes `operator_endpoints` as read from the base commit and failing closed when missing while `operator_paths` is
    non-empty. The generic check does not judge hosts, because design section 12 does not list endpoint rules among the generic ones,

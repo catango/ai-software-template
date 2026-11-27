@@ -10,10 +10,14 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tomllib
 import unittest
 
 import helpers
+
+sys.path.insert(0, str(helpers.ROOT / "scripts"))
+from pr_contract import template_rules  # noqa: E402
 
 ROOT = helpers.ROOT
 CHECKS = ("claude-md", "deny-list", "operator-contract")
@@ -64,6 +68,56 @@ class SeededInstructionFiles(unittest.TestCase):
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         for check in CHECKS:
             self.assertIn(f"PASS {check}", done.stdout)
+
+
+class _Change:
+    def __init__(self, path, status):
+        self.path, self.status, self.previous = path, status, None
+
+
+class _Pr:
+    base_sha = "base"
+
+
+class _Client:
+    """The one thing check_init reads: files of the base commit (the template's manifest, and no state file)."""
+
+    def __init__(self, manifest_text):
+        self.manifest_text = manifest_text
+
+    def file_text(self, sha, path):
+        return self.manifest_text if path == ".template/manifest.toml" else None
+
+
+class InitPullRequestTC2(helpers.TempDirTestCase):
+    """TC-2 on the file list that a generated tree produces: what an init PR would change against the template it was made from."""
+
+    def init_pr_violations(self, config_name):
+        exported = helpers.export_template(self.make_dir() / "base")
+        tree, result = self.generate(config_name)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        before, after = helpers.snapshot(exported), helpers.snapshot(tree)
+        files = [_Change(p, "removed") for p in sorted(set(before) - set(after))]
+        files += [_Change(p, "added") for p in sorted(set(after) - set(before))]
+        files += [_Change(p, "modified") for p in sorted(set(before) & set(after)) if before[p] != after[p]]
+        manifest = (exported / ".template" / "manifest.toml").read_text()
+        return [v.message for v in template_rules.check_init(_Pr(), files, _Client(manifest))], files
+
+    def test_an_init_pr_without_preset_entries_passes_tc2(self):
+        found, files = self.init_pr_violations("neutral")
+        self.assertEqual(found, [])
+        self.assertNotIn(".claude/settings.json", [f.path for f in files])
+
+    @unittest.expectedFailure
+    def test_an_init_pr_with_preset_deny_entries_passes_tc2(self):
+        # OPEN DESIGN QUESTION (see template-dev/docs/instructions.md, point 2): init adds the preset's deny entries to the owned
+        # .claude/settings.json, and TC-2 lets an init PR write only seeded paths. Remove the decorator when the approver decides.
+        found, _ = self.init_pr_violations("second")
+        self.assertEqual(found, [])
+
+    def test_the_failure_of_the_second_configuration_is_exactly_the_settings_file(self):
+        found, _ = self.init_pr_violations("second")
+        self.assertEqual(found, ["written path is not seeded: .claude/settings.json"])
 
 
 class GeneratedTree(helpers.TempDirTestCase):
