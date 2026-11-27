@@ -1,0 +1,2 @@
+Bash(terraform apply *)
+Bash(oci *)

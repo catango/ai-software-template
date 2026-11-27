@@ -1,5 +1,5 @@
 <!-- PR type: init. Branch: init/v<MAJOR>.<MINOR>.<PATCH>. Rule PC-1 requires every section below, non-empty. -->
-<!-- The first change after "Use this template". Rule TC-2: only template-only paths are deleted, only seeded files, the configuration file, and .template/state.toml are written, and the base branch has no .template/state.toml yet. -->
+<!-- The first change after "Use this template". Rule TC-2: only template-only paths are deleted, only seeded files, the configuration file, and .template/state.toml are written, and the base branch has no .template/state.toml yet. One exception: .claude/settings.json may get entries appended to permissions.deny, each listed in .claude/deny.platform.txt, and no other change. -->
 <!-- Removing the template's own workflow is a workflow change: the section "Workflow change justification" is required (PC-6). -->
 <!-- If a path listed under the key `operator_paths` of config/project.yaml changes (the value on the base commit counts), add a section "Operator script review" (PC-8). No identifiers, addresses, or names. -->
 

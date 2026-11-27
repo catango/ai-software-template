@@ -1,0 +1,30 @@
+[
+ {
+  "filename": "template-dev/tests/a.py",
+  "status": "removed"
+ },
+ {
+  "filename": ".github/workflows/template-ci.yml",
+  "status": "removed"
+ },
+ {
+  "filename": "README.md",
+  "status": "modified"
+ },
+ {
+  "filename": "config/project.yaml",
+  "status": "modified"
+ },
+ {
+  "filename": ".claude/settings.json",
+  "status": "modified"
+ },
+ {
+  "filename": ".claude/deny.platform.txt",
+  "status": "modified"
+ },
+ {
+  "filename": ".template/state.toml",
+  "status": "added"
+ }
+]

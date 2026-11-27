@@ -1,0 +1,4 @@
+exit 1
+pr-contract: PR #10 (type: template-sync)
+FAIL TC-1: added path is neither owned nor seeded in the head manifest: docs/new.md
+pr-contract: 1 violation

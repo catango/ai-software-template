@@ -51,8 +51,8 @@ and its endpoint list and was not copied; only the idea of a base-commit policy 
 
 - **Inactive** for an explicit empty `operator_paths` (the check exits 0 without judging a file). **Fails closed** when the configuration
   of the base commit is missing, unreadable, or lacks `operator_paths`, and when the base commit cannot be resolved.
-- **Policy from the base.** `quality-gate.sh --base` sets `GATE_BASE_REF`, and so will the base-run step of `pr-contract.yml` once the
-  follow-up adds the check (point 7); the check reads `config/project.yaml` from that commit with the strict reader of
+- **Policy from the base.** `quality-gate.sh --base` sets `GATE_BASE_REF`, and so does the base-run step of `pr-contract.yml` (the check
+  was added to it in the TC amendments PR, point 7); the check reads `config/project.yaml` from that commit with the strict reader of
   `pr_contract.config` (the same reader PC-8 uses) and never from the head. `scripts/pr_contract/` must sit beside the checks.
 - **Python rules** (the syntax tree, nothing is run): no `shell=True`, `executable=`, `os.system`, `os.popen`, `os.exec*`, `os.spawn*`, `pty`, `eval`,
   `exec`, or dynamic import; a subprocess needs a literal argument list whose program is a bare name listed in `operator_commands`;
@@ -129,12 +129,12 @@ decision 9 are in `CLAUDE.md`.
    this row put them in the platform list, and the platform's own file says its preset adds no rule. This row follows the design: the
    core list names no infrastructure tool. The platform's preset PR must carry them in its `deny.platform.txt`, or the design should
    say they are core.
-2. **Platform deny entries in an owned file (open; two problems, both found in review).** Init merges the entries of a preset's
+2. **Platform deny entries in an owned file (decided 2026-11-27: option 1, implemented in the TC amendments PR, see `template-dev/docs/pr-contract.md`; the text below is the question as it stood).** Init merges the entries of a preset's
    `deny.platform.txt` into the owned `.claude/settings.json`, because `deny-list` wants them there. (a) **TC-2 refuses it.** An init PR may
    write only seeded paths, and the merge changes an owned file, so the first init PR of a repository with a preset deny list fails
    `pr-contract` with `TC-2: written path is not seeded: .claude/settings.json`. A test (`InitPullRequestTC2` in
    `template-dev/tests/test_instructions.py`) runs TC-2 on the file list of a generated tree: it passes without preset entries, and
-   with them the failure is exactly that path (the test is marked as an expected failure until this is decided). (b) **Template-sync**
+   with them the failure is exactly that path (the test was an expected failure until the decision; it is now a passing test). (b) **Template-sync**
    overwrites owned files and would drop the entries (row 8). Options: (1) TC-2 accepts, for `.claude/settings.json` only, a change
    that appends entries to `permissions.deny` that are all listed in the head's `.claude/deny.platform.txt`, and row 8 regenerates
    `settings.json` from the new core list plus the seeded list, so no override entry is needed; (2) the platform entries live only in
@@ -162,7 +162,7 @@ decision 9 are in `CLAUDE.md`.
    with the head's `settings.json`. What guards those files against a pull request that edits both sides is `owned-drift`
    (row 8), which reads the hashes from the base and needs an override entry. Until row 8 lands that gap is open in a generated
    repository; the code-owner review of the approver is the control.
-7. **`operator-contract` is not on the list yet, on purpose (a follow-up pull request).** A checker that is missing on the base commit
+7. **`operator-contract` was not on the list in this PR, on purpose (done in the follow-up, `template-dev/docs/pr-contract.md`, which also adds `cr-layout`).** A checker that is missing on the base commit
    fails `pr-contract` (ADR-009 decision 14 removed the bootstrap skip), so the pull request that adds the checker cannot also add it
    to the list without failing its own `pr-contract`. The follow-up, after this one is merged: in `.github/workflows/pr-contract.yml`
    add `operator-contract` to the id list of the step "Run the policy checks of the base against the head" and update the comment

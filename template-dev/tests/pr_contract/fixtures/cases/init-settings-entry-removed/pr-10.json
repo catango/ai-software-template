@@ -1,0 +1,20 @@
+{
+ "number": 10,
+ "title": "A title",
+ "body": "<!-- PR type: init. Branch: init/v<MAJOR>.<MINOR>.<PATCH>. Rule PC-1 requires every section below, non-empty. -->\n## Summary\nFilled in for the test.\n\n## Configuration\nFilled in for the test.\n\n## Post-init actions\nFilled in for the test.\n\n## Workflow change justification\nFilled in for the test.\n\n## Validation\nFilled in for the test.\n\n## Checkpoint\n- [ ] item\n",
+ "state": "open",
+ "draft": true,
+ "merged": false,
+ "user": {
+  "login": "example-machine"
+ },
+ "head": {
+  "ref": "init/v1.0.0",
+  "sha": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+ },
+ "base": {
+  "ref": "main",
+  "sha": "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2"
+ },
+ "changed_files": 1
+}

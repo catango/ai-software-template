@@ -1,0 +1,21 @@
+{
+  "$schema": "x",
+  "enableAllProjectMcpServers": false,
+  "permissions": {
+    "disableBypassPermissionsMode": "disable",
+    "deny": [
+      "Bash(gh pr merge *)",
+      "Bash(sudo *)",
+      "Read(./.env)",
+      "Bash(terraform apply *)",
+      "Bash(oci *)",
+      "Bash(rm -rf *)"
+    ],
+    "ask": [
+      "Bash(git push *)"
+    ],
+    "allow": [
+      "Read"
+    ]
+  }
+}

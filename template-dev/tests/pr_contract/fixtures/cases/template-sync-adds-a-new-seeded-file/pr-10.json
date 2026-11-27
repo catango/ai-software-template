@@ -1,7 +1,7 @@
 {
  "number": 10,
  "title": "A title",
- "body": "<!-- PR type: template-sync. Branch: template-sync/v<MAJOR>.<MINOR>.<PATCH>. Rule PC-1 requires every section below, non-empty. -->\n## Summary\nFilled in for the test.\n\n## Versions\nFilled in for the test.\n\n## Changed files by class\nFilled in for the test.\n\n## Overrides honoured\nFilled in for the test.\n\n## Drift limited to uses lines\nFilled in for the test.\n\n## Release notes\nFilled in for the test.\n\n## Checkpoint\n- [ ] item\n",
+ "body": "<!-- PR type: template-sync. Branch: template-sync/v<MAJOR>.<MINOR>.<PATCH>. Rule PC-1 requires every section below, non-empty. -->\n## Summary\nFilled in for the test.\n\n## Versions\nFilled in for the test.\n\n## Changed files by class\nSeeded, new in this version, added once:\n- `docs/GUIDE.md`\n\n## Overrides honoured\nFilled in for the test.\n\n## Drift limited to uses lines\nFilled in for the test.\n\n## Release notes\nFilled in for the test.\n\n## Checkpoint\n- [ ] item\n",
  "state": "open",
  "draft": true,
  "merged": false,

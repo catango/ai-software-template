@@ -230,7 +230,7 @@ def evaluate(pr, client, templates_dir):
                 violations.append(Violation("PC-6", f"workflow change without a non-empty '{JUSTIFICATION}' section"))
         violations.extend(check_operator_paths(files, parsed, base))
         if kind == "template-sync":
-            violations.extend(template_rules.check_template_sync(pr, files, client))
+            violations.extend(template_rules.check_template_sync(pr, files, client, parsed))
         if kind == "init":
             violations.extend(template_rules.check_init(pr, files, client))
     return violations

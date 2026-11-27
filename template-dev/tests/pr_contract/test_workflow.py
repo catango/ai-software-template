@@ -72,8 +72,14 @@ class Workflow(unittest.TestCase):
 
     def test_the_policy_inputs_come_from_the_base_commit(self):
         self.assertIn("GATE_BASE_REF: ${{ github.event.pull_request.base.sha }}", self.text)
-        for check in ("workflow-policy", 'no-cl""aude-in-workflows', "forbidden-api"):
+        for check in ("workflow-policy", 'no-cl""aude-in-workflows', "forbidden-api", "operator-contract", "cr-layout"):
             self.assertIn(check, self.text)
+
+    def test_the_base_run_list_is_exactly_the_checks_with_a_policy_input_from_the_base(self):
+        # PR #6 (follow-up spec): operator-contract is on the list; claude-md and deny-list are not (nothing to read from the base);
+        # cr-layout reads docs_roots from the base configuration like operator-contract reads operator_paths.
+        found = re.search(r"for id in ([^;\n]+); do", self.text).group(1).split()
+        self.assertEqual(found, ["workflow-policy", '"no-cl""aude-in-workflows"', "forbidden-api", "operator-contract", "cr-layout"])
 
     def test_timeout_and_concurrency(self):
         self.assertIn("timeout-minutes:", self.text)

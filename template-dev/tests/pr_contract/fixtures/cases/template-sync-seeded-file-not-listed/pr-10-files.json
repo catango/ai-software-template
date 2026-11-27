@@ -1,0 +1,10 @@
+[
+ {
+  "filename": "docs/GUIDE.md",
+  "status": "added"
+ },
+ {
+  "filename": ".template/state.toml",
+  "status": "modified"
+ }
+]

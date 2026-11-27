@@ -1,0 +1,4 @@
+exit 1
+pr-contract: PR #10 (type: template-sync)
+FAIL TC-1: added seeded path is not listed under 'Changed files by class': docs/GUIDE.md
+pr-contract: 1 violation

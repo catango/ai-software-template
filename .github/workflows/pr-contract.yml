@@ -53,8 +53,11 @@ jobs:
 
       # The policy checks of the base commit, run on the files of the head. The checks read their policy inputs from the
       # base commit GATE_BASE_REF, which is made readable inside the head checkout from the base checkout on disk. The
-      # head directory is read-only while they run. The checks that a later row of the template adds (owned-drift,
-      # operator-contract, dependabot-config) join this list with that row.
+      # head directory is read-only while they run. The list holds the checks whose policy comes from the base commit:
+      # operator-contract (operator_paths, operator_commands) and cr-layout (docs_roots) read the base configuration. The checks
+      # that only compare files of the head with each other (the instruction-file and deny-list checks) have no policy input to
+      # read from the base and are not on it. The checks that a later row of the template adds (owned-drift, dependabot-config)
+      # join this list with that row.
       - name: Run the policy checks of the base against the head
         shell: bash
         env:
@@ -72,7 +75,7 @@ jobs:
           chmod -R a-w head
           failed=0
           # The id of the check that forbids the product name in workflow text is written in two parts, so that this file passes it.
-          for id in workflow-policy "no-cl""aude-in-workflows" forbidden-api; do
+          for id in workflow-policy "no-cl""aude-in-workflows" forbidden-api operator-contract cr-layout; do
             checker="$base/scripts/checks/$id.sh"
             if [[ ! -f $checker ]]; then
               echo "pr-contract: the checker $id is missing on the base commit"
