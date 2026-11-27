@@ -26,12 +26,12 @@ design_repos = ["example-org/design-records"]
 operator_paths = ["ops/scripts/", "ops/profile.yml"]
 
 [[architectures]]
-name = "arch-a"
+name = "amd64"
 runner = "runner-a"
 runner_private = "runner-a"
 
 [[architectures]]
-name = "arch-b"
+name = "arm64"
 runner = "runner-b"
 runner_private = ""
 

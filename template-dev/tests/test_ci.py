@@ -276,6 +276,30 @@ class Planner(unittest.TestCase):
                 self.assertEqual(code, 1)
                 self.assertTrue(err.startswith("ci_matrix: "), err)
 
+    def test_a_self_hosted_label_is_refused_in_any_case(self):
+        for label in ("self-hosted", "Self-Hosted", "SELF-HOSTED"):
+            for key in ("runner", "runner_private"):
+                with self.subTest(label=label, key=key):
+                    entry = {"name": "amd64", "runner": "ubuntu-24.04", "runner_private": "ubuntu-24.04", key: label}
+                    code, _, err = self.plan({"architectures": [entry]}, "true" if key == "runner_private" else "false")
+                    self.assertEqual(code, 1)
+                    self.assertIn("self-hosted", err)
+
+    def test_the_unselected_label_is_judged_too(self):
+        entry = {"name": "amd64", "runner": "ubuntu-24.04", "runner_private": "self-hosted"}
+        self.assertEqual(self.plan({"architectures": [entry]}, "false")[0], 1)
+
+    def test_a_label_outside_runner_labels_is_refused_when_the_key_is_present(self):
+        config = {"runner_labels": ["ubuntu-24.04"], "architectures": [arch("amd64", "ubuntu-24.04", ""), arch("arm64", "other-runner", "")]}
+        code, _, err = self.plan(config)
+        self.assertEqual(code, 1)
+        self.assertIn("runner_labels", err)
+        config["architectures"][1]["runner"] = ""
+        self.assertEqual(self.plan(config)[0], 0)
+        self.assertEqual(self.plan(dict(config, runner_labels="ubuntu-24.04"))[0], 1)
+        self.assertEqual(self.plan(dict(config, runner_labels=["ubuntu-24.04", 3]))[0], 1)
+        self.assertEqual(self.plan(dict(config, runner_labels=["self-hosted"]))[0], 1)
+
     def test_the_error_names_no_value(self):
         secret = "hunter2-label"
         _, _, err = self.plan({"architectures": [arch("amd64", "bad label " + secret, "")]})
@@ -290,6 +314,12 @@ class Planner(unittest.TestCase):
         done = subprocess.run([sys.executable, "-I", "-B", str(PLANNER), "plan", "--manifest", str(MANIFEST), "--private", "false"],
                               input="{", capture_output=True, text=True, check=False)
         self.assertEqual(done.returncode, 1)
+
+    def test_architectures_that_the_manifest_does_not_declare_are_refused_with_the_reason(self):
+        """A generated repository whose configuration names another architecture needs artifacts for it in the CI manifest."""
+        code, _, err = self.plan({"architectures": [arch("arch-a", "runner-a", "runner-a")]})
+        self.assertEqual(code, 1)
+        self.assertIn("the CI manifest has no artifacts for this architecture", err)
 
     def test_one_architecture_configuration_is_planned(self):
         code, matrix, _ = self.plan({"architectures": [arch("amd64", "ubuntu-24.04", "")]}, "true")
@@ -315,6 +345,27 @@ class Planner(unittest.TestCase):
         config = {"architectures": [arch(n, r, p) for n, r, p in zip(names, runners, private)]}
         for flag in ("true", "false"):
             self.assertEqual(self.plan(config, flag)[0], 0)
+
+
+class Generated(unittest.TestCase):
+    """A repository generated from either fixture configuration can plan its CI matrix."""
+
+    def test_generated_trees_plan_for_both_visibilities(self):
+        import helpers
+        for name, config in helpers.CONFIGS.items():
+            with self.subTest(config=name), tempfile.TemporaryDirectory() as tmp:
+                tree = helpers.export_template(pathlib.Path(tmp) / "tree")
+                done = helpers.run_init(tree, config)
+                self.assertEqual(done.returncode, 0, done.stderr)
+                text = (tree / "config" / "project.yaml").read_text()
+                names = re.findall(r'^  - name: "([^"]+)"', text, re.M)
+                runners = re.findall(r'^    runner: "([^"]*)"', text, re.M)
+                private = re.findall(r'^    runner_private: "([^"]*)"', text, re.M)
+                self.assertTrue(names)
+                entries = {"architectures": [arch(n, r, p) for n, r, p in zip(names, runners, private)]}
+                for flag in ("true", "false"):
+                    done = run_planner(entries, flag, manifest=tree / "toolchain" / "ci-manifest.toml")
+                    self.assertEqual(done.returncode, 0, done.stderr)
 
 
 class Commands(unittest.TestCase):
