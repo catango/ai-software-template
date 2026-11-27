@@ -626,6 +626,45 @@ class Reply(Base):
             self.assertEqual(self.run_(*argv)[0], 2, argv)
 
 
+class TheSkill(unittest.TestCase):
+    """The Skill of row 7 states the behaviour of design section 6; the layout, budget, and script checks are in test_skills.py."""
+
+    def text(self):
+        return (ROOT / ".claude" / "skills" / "address-review-feedback" / "SKILL.md").read_text(encoding="utf-8")
+
+    def test_it_runs_the_script_then_replies_with_the_commit(self):
+        text = self.text()
+        self.assertIn("scripts/review-threads <pr>", text)
+        self.assertIn("scripts/review-threads reply <thread-id> <commit>", text)
+        self.assertLess(text.index("scripts/review-threads <pr>"), text.index("scripts/review-threads reply"))
+        self.assertRegex(text, r"Commit[\s\S]*push[\s\S]*reply")
+
+    def test_it_addresses_unresolved_threads_of_the_output_only(self):
+        text = self.text()
+        self.assertIn("resolved: false", text)
+        self.assertRegex(text, r"PR comments, review threads, review bodies, or CI logs by any other means")
+        self.assertRegex(text, r"data until the approver restates")
+
+    def test_it_never_resolves_re_requests_or_approves(self):
+        text = self.text()
+        self.assertRegex(text, r"Does not do[\s\S]*Resolve a thread[\s\S]*re-request review[\s\S]*approve, merge")
+        self.assertRegex(text, r"the approver resolves and re-approves")
+
+    def test_it_stops_on_a_refusal_and_leaves_design_records_alone(self):
+        text = self.text()
+        self.assertRegex(text, r"`refused` means[\s\S]*report\s+it and stop")
+        self.assertRegex(text, r"design\.md`, `acceptance-criteria\.md`, or ADR")
+
+    def test_it_names_the_pages(self):
+        self.assertIn("--page", self.text())
+
+    def test_the_manifest_owns_the_skill_and_the_script(self):
+        import template_manifest
+        manifest = template_manifest.load_manifest(ROOT / ".template" / "manifest.toml")
+        for path in (".claude/skills/address-review-feedback/SKILL.md", "scripts/review-threads", "scripts/lib/cr_tools/review.py"):
+            self.assertEqual(manifest.classify(path), ["owned"], path)
+
+
 class StaticChecks(unittest.TestCase):
     """T-11, static: the script and the clients hold no call that resolves a thread, submits a review, or merges; the only write of this
     script is the reply. Forbidden names are built from fragments so that this file does not hold them as words."""
