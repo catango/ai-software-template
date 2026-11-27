@@ -127,6 +127,17 @@ gen_hygiene_cases() {
   mk fail-private-ipv4 "IPv4" "$(printf '%s.%s.%s.%s' 10 0 0 7)"
   mk fail-public-ipv4 "IPv4" "$(printf '%s.%s.%s.%s' 8 8 8 8)"
   mk fail-email "email" "$(printf '%s%s%s' user "$at" example.com)"
+  # an address is allowed only in the GitHub noreply form and as a local part that is exactly noreply or no-reply
+  mk fail-email-noreply-inside-the-local-part "email" "$(printf 'person.noreply%sexample.com' "$at")"
+  mk fail-email-noreply-prefix-of-the-local-part "email" "$(printf 'noreply.team%sexample.com' "$at")"
+  mk fail-email-no-reply-suffix-of-the-local-part "email" "$(printf 'jane-no-reply%sexample.com' "$at")"
+  mk fail-email-noreply-github-lookalike-domain "email" "$(printf '1234+bot%susers.noreply.github.com.example.org' "$at")"
+  mk fail-email-noreply-github-in-the-local-part "email" "$(printf 'users.noreply.github.com%sexample.org' "$at")"
+  # an IPv6 address: eight groups, or a compressed form with at least two groups before the double colon
+  mk fail-ipv6-eight-groups "IPv6" "$(printf '%s:%s:%s:%s:%s:%s:%s:%s' 2a02 6b8 0 0 0 0 1 2)"
+  mk fail-ipv6-compressed "IPv6" "$(printf 'fd12:3456%s1' '::')"
+  mk fail-ipv6-compressed-trailing "IPv6" "$(printf 'fd12:3456:789a%s' '::')"
+  mk fail-ipv6-in-a-url "IPv6" "$(printf 'https://[fd12:3456%s5]:8080/x' '::')"
   mk fail-fingerprint-sha256 "fingerprint" "$(printf '%s:%s' SHA256 "$(rep 43 A)")"
   mk fail-fingerprint-md5 "fingerprint" "$(rep 15 'ab:')ab"
   mk fail-private-key "private key" "$(printf -- '-----BEGIN %s-----' 'OPENSSH PRIVATE KEY')"
@@ -144,6 +155,14 @@ gen_hygiene_cases() {
   printf '%s' "* @example-approver" >"$d/pass-codeowners-no-final-newline/.github/CODEOWNERS"
   mkdir -p "$d/pass-handle-outside-codeowners"
   printf '%s\n' "Ask @example-approver in the pull request." >"$d/pass-handle-outside-codeowners/file.txt"
+  mkdir -p "$d/pass-noreply-forms"
+  printf '%s\n' "$(printf 'noreply%sexample.com' "$at")" "$(printf 'no-reply%sexample.org' "$at")" "$(printf 'NoReply%sexample.org' "$at")" \
+    "$(printf '1234+bot%susers.noreply.github.com' "$at")" "$(printf 'bot%susers.noreply.github.com' "$at")" >"$d/pass-noreply-forms/file.txt"
+  mkdir -p "$d/pass-ipv6-documentation-prefix"
+  printf '%s\n' "$(printf '2001:db8%s1' '::')" "$(printf '%s:%s:%s:%s:%s:%s:%s:%s' 2001 db8 0 0 0 0 0 1)" "$(printf '2001:DB8:abcd%s' '::')" >"$d/pass-ipv6-documentation-prefix/file.txt"
+  mkdir -p "$d/pass-not-an-ipv6-address"
+  printf '%s\n' "mac $(printf '%s:%s:%s:%s:%s:%s' aa bb cc dd ee ff)" "time $(printf '%s:%s:%s' 12 30 45)" "list $(printf '%s:%s:%s:%s:%s:%s:%s' a b c d e f 0)" \
+    "scope $(printf 'ab%scd%sef' '::' '::')" "loopback $(printf '%s1' '::')" "path std$(printf '%s' '::')collections$(printf '%s' '::')HashMap" "ratio $(printf '%s:%s' 16 9)" >"$d/pass-not-an-ipv6-address/file.txt"
   secret=$(printf '%s.%s.%s.%s' 192 0 2 1)
   mkdir -p "$d/pass-doc-range-and-noreply"
   printf '%s\n%s\n%s\n' "$secret" "1234+bot${at}users.noreply.github.com" "$(printf '%s.%s.%s.%s/%s' 0 0 0 0 0)" >"$d/pass-doc-range-and-noreply/file.txt"

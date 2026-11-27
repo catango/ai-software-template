@@ -3,7 +3,7 @@
 # order: 30
 # class: generic
 # scope: all
-# No resource identifiers, IPv4 addresses, emails, key fingerprints, private keys, or tokens.
+# No resource identifiers, IPv4 and IPv6 addresses, emails, key fingerprints, private keys, or tokens.
 # Findings give the path, line, and kind only; the matched text is never printed.
 # One account handle is accepted anywhere it is meant to be public: the single seeded CODEOWNERS line `* @<login>`.
 # In a CODEOWNERS file every other line that contains an @ (a second owner, a team, a path rule) is a finding.
@@ -13,6 +13,9 @@ set -euo pipefail
 
 readonly RE_OCID='ocid1[.][a-z0-9_]+[.][a-z0-9-]+[.]'
 readonly RE_IPV4='(^|[^0-9.])[0-9]{1,3}([.][0-9]{1,3}){3}(/[0-9]{1,2})?([^0-9]|$)'
+# IPv6: eight groups, or a compressed form with at least two groups before the double colon (a MAC address, a time, a ratio,
+# a short list, and a scope-resolution path are not addresses). The boundary characters are part of the match and are never printed.
+readonly RE_IPV6='(^|[^0-9A-Za-z:])((([0-9A-Fa-f]{1,4}:){7}[0-9A-Fa-f]{1,4})|(([0-9A-Fa-f]{1,4}:){2,6}:[0-9A-Fa-f]{0,4}(:[0-9A-Fa-f]{1,4}){0,5}))([^0-9A-Za-z:]|$)'
 readonly RE_EMAIL='[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+([.][A-Za-z0-9-]+)*[.][A-Za-z]{2,}'
 readonly RE_FPR_SHA256='SHA256:[A-Za-z0-9+/]{43}'
 readonly RE_FPR_MD5='([0-9A-Fa-f]{2}:){15}[0-9A-Fa-f]{2}'
@@ -37,6 +40,15 @@ ipv4_allowed() {
   return 1
 }
 
+# ipv6_allowed TEXT: the documentation prefix is allowed, like the documentation IPv4 ranges.
+ipv6_allowed() {
+  local m=$1
+  m=${m#[!0-9A-Fa-f]}
+  m=${m%[!0-9A-Fa-f:]}
+  m=${m,,}
+  [[ $m == 2001:db8:* || $m == 2001:0db8:* ]]
+}
+
 found=0
 applicable=0
 
@@ -59,7 +71,9 @@ is_allowed() {
       m=${m%[!0-9]}
       ipv4_allowed "$m"
       ;;
-    email) [[ ${m,,} == *noreply* || ${m,,} == *no-reply* ]] ;;
+    # only the GitHub noreply form, and a local part that is exactly noreply or no-reply
+    email) [[ ${m,,} =~ ^([0-9]+\+)?[a-z0-9-]+@users\.noreply\.github\.com$ || ${m,,} == noreply@* || ${m,,} == no-reply@* ]] ;;
+    ipv6) ipv6_allowed "$m" ;;
     *) return 1 ;;
   esac
 }
@@ -83,6 +97,7 @@ while IFS= read -r f; do
   if [[ ${f##*/} == CODEOWNERS ]]; then scan_codeowners "$f"; fi
   scan "$f" 'cloud resource identifier' "$RE_OCID"
   scan "$f" 'IPv4 address' "$RE_IPV4" ipv4
+  scan "$f" 'IPv6 address' "$RE_IPV6" ipv6
   scan "$f" 'email address' "$RE_EMAIL" email
   scan "$f" 'key fingerprint' "$RE_FPR_SHA256"
   scan "$f" 'key fingerprint' "$RE_FPR_MD5"
