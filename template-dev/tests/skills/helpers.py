@@ -58,11 +58,15 @@ def implementation_body(*, ticked=0, newline="\n", extra_after=""):
 
 
 def pr_json(number, *, author=MACHINE, head_ref="impl/CR-40-thing", base_ref="main", body=None, draft=True, merged=False,
-            state=None, head_sha=HEAD_SHA, base_sha=BASE_SHA, node_id=None, title="A pull request", merged_at=None):
+            state=None, head_sha=HEAD_SHA, base_sha=BASE_SHA, node_id=None, title="A pull request", merged_at=None,
+            head_repo=REPO, base_repo=REPO):
+    """A pull request as the API returns it. `head_repo` is the repository the head branch lives in (None: a deleted fork)."""
+    head = {"ref": head_ref, "sha": head_sha, "repo": {"full_name": head_repo} if head_repo else None}
+    base = {"ref": base_ref, "sha": base_sha, "repo": {"full_name": base_repo} if base_repo else None}
     return {
         "number": number, "title": title, "body": body if body is not None else implementation_body(), "state": state or ("closed" if merged else "open"),
-        "draft": draft, "merged": merged, "merged_at": merged_at, "user": {"login": author}, "head": {"ref": head_ref, "sha": head_sha},
-        "base": {"ref": base_ref, "sha": base_sha}, "node_id": node_id or f"PR_example_node_{number}",
+        "draft": draft, "merged": merged, "merged_at": merged_at, "user": {"login": author}, "head": head,
+        "base": base, "node_id": node_id or f"PR_example_node_{number}",
     }
 
 

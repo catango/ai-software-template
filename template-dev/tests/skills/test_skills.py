@@ -140,7 +140,7 @@ class ScriptsHaveAnOfflineModeAndATest(unittest.TestCase):
 
     def test_the_fixture_run_of_every_github_script_exists_as_a_test_file(self):
         names = {path.name for path in TESTS.glob("test_*.py")}
-        self.assertLessEqual({"test_pr_checkpoint.py", "test_cr_context.py", "test_cr_criteria.py"}, names)
+        self.assertLessEqual({"test_pr_checkpoint.py", "test_cr_context.py", "test_cr_criteria.py", "test_review_threads.py"}, names)
 
 
 class InitializeProjectCreatesNothingOnGitHub(unittest.TestCase):
@@ -173,19 +173,37 @@ class StartCrLabelsOnlyAfterConfirmation(unittest.TestCase):
         return ast.parse((ROOT / "scripts" / "lib" / "cr_tools" / "client.py").read_text(encoding="utf-8"))
 
     def write_calls(self):
-        """The argument arrays that write (a method flag, the graphql endpoint, or a body from stdin)."""
+        """The argument arrays that write: a method flag, a body from stdin, or a GraphQL document that starts with `mutation`."""
         found = []
         for node in ast.walk(self.client_tree()):
             if isinstance(node, ast.List) and node.elts and isinstance(node.elts[0], ast.Constant) and node.elts[0].value == "gh":
                 parts = [ast.unparse(element) for element in node.elts]
-                if "'-X'" in parts or "'graphql'" in parts:
+                if "'-X'" in parts or any(part.startswith("'query=mutation") for part in parts):
                     found.append(parts)
         return found
 
-    def test_the_writes_are_exactly_these_three(self):
-        calls = self.write_calls()
-        described = sorted((c[3] if c[2] == "'-X'" else "graphql", c[4] if c[2] == "'-X'" else "") for c in calls)
-        self.assertEqual(described, sorted([("'POST'", "f'repos/{self.repo}/issues/{number}/labels'"), ("'PATCH'", "f'repos/{self.repo}/pulls/{number}'"), ("graphql", "")]))
+    def test_the_writes_are_exactly_these_four(self):
+        """Label add, body PATCH, the ready mutation (rows 6) and the thread reply (row 7). GraphQL reads (`query=query`) are not writes."""
+        described = []
+        for call in self.write_calls():
+            if call[2] == "'-X'":
+                described.append((call[3], call[4]))
+            else:
+                query = [part for part in call if part.startswith("'query=mutation")][0]
+                described.append(("graphql", re.search(r"mutation[^{]*\{\s*(\w+)", query).group(1)))
+        self.assertEqual(sorted(described), sorted([
+            ("'POST'", "f'repos/{self.repo}/issues/{number}/labels'"), ("'PATCH'", "f'repos/{self.repo}/pulls/{number}'"),
+            ("graphql", "markPullRequestReadyForReview"), ("graphql", "addPullRequestReviewThreadReply"),
+        ]))
+
+    def test_every_graphql_read_is_a_query(self):
+        for node in ast.walk(self.client_tree()):
+            if isinstance(node, ast.List) and node.elts and isinstance(node.elts[0], ast.Constant) and node.elts[0].value == "gh":
+                parts = [ast.unparse(element) for element in node.elts]
+                if "'graphql'" in parts:
+                    docs = [part for part in parts if part.startswith("'query=")]
+                    self.assertEqual(len(docs), 1, parts)
+                    self.assertTrue(docs[0].startswith("'query=query") or docs[0].startswith("'query=mutation"), docs[0])
 
     def test_no_label_is_created_anywhere(self):
         for path in (ROOT / "scripts" / "lib" / "cr_tools").glob("*.py"):
@@ -218,6 +236,10 @@ class LaterSkills(unittest.TestCase):
         for name, (script, _) in LATER.items():
             if (SKILLS / name / "SKILL.md").exists():
                 self.assertTrue((ROOT / script).is_file(), script)
+
+    def test_the_review_feedback_skill_of_row_7_exists_and_is_in_the_checked_table(self):
+        self.assertTrue((SKILLS / "address-review-feedback" / "SKILL.md").is_file())
+        self.assertIn("address-review-feedback", present())
 
     def test_the_manifest_classes_the_new_files_once(self):
         import template_manifest

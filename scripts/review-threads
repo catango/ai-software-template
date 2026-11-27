@@ -1,0 +1,17 @@
+#!/usr/bin/env python3
+"""The approver's review feedback on a pull request. See scripts/lib/cr_tools/review.py.
+
+    scripts/review-threads PR [--page N]  |  scripts/review-threads reply THREAD-ID COMMIT    [--repo owner/name] [--fixture DIR]
+"""
+import os
+import sys
+
+sys.dont_write_bytecode = True
+here = os.path.dirname(os.path.realpath(__file__))
+sys.path.insert(0, here)
+sys.path.insert(0, os.path.join(here, "lib"))
+
+from cr_tools import review  # noqa: E402
+
+if __name__ == "__main__":
+    sys.exit(review.main())
