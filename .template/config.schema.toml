@@ -9,7 +9,7 @@
 #   string       "pattern" (regular expression), "max_length", "kind"
 #   integer      "min"
 #   enum         "values"
-#   string-list  "item_pattern", "max_length" and "kind" (both apply to each item)
+#   string-list  "item_pattern", "max_length" and "kind" (they apply to each item), "min_items"
 #   table-list   "items" (fields of each table), "min_items", "unique" (a key whose values differ)
 # A field is optional unless "required" is true. "default" applies when it is absent.
 # "kind" = "relative-path" means: not absolute, no empty, "." or ".." segment, no backslash.
@@ -88,7 +88,19 @@ key = "workflow.operator_paths"
 type = "string-list"
 required = true
 kind = "relative-path"
-description = "Paths whose change needs the operator script review section. An empty list switches that rule off."
+item_pattern = '^(?!\.{1,2}(?:\*/|/|$))[A-Za-z0-9_.][A-Za-z0-9_.-]*(?:/(?!\.{1,2}(?:\*/|/|$))[A-Za-z0-9_.-]+)*(?:\*/|/)?$'
+max_length = 200
+description = "Paths whose change needs the operator script review section. An exact path, a directory prefix ending in /, or a prefix ending in */ (the star is dropped). Only the characters of the pattern: pr-contract reads this list from config/project.yaml in a strict subset of YAML and fails closed on anything else. An empty list switches that rule off."
+
+[[field]]
+key = "workflow.docs_roots"
+type = "string-list"
+kind = "relative-path"
+item_pattern = '^[A-Za-z0-9_.][A-Za-z0-9_.-]*(?:/[A-Za-z0-9_.-]+)*/$'
+max_length = 200
+min_items = 1
+default = ["docs/"]
+description = "Directories that hold the change requests (<root>cr/) and the ADRs (<root>adr/), each ending in /. A design PR may change only paths under them; an implementation or change PR may not change the approved records in them."
 
 [[field]]
 key = "architectures"

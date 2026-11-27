@@ -5,8 +5,10 @@ There is no YAML library and no process: `parse_yaml` is a strict reader of THRE
 `scripts/initialize-project` writes, and everything else in the file is not interpreted. Anything of those keys outside the
 subset raises ConfigError, so the rules that need them fail closed instead of guessing. The subset:
 
-    workflow:                         # a block mapping; keys other than the two below are skipped
+    workflow:                         # a block mapping; keys other than the three below are skipped
       design_repos: []                # or a block list of strings (owner/name), the only two forms
+      docs_roots:                     # the same two forms: directories ending in `/` that hold the records (PC-4, PC-5)
+        - "docs/"
       operator_paths:
         - "scripts/operator/"         # strings plain, "double" or 'single' quoted, of letters, digits, `.`, `_`, `-`, `/`, `@`
         - ansible/roles/operator_*/   # and `*` as the last two characters `*/` of a path; no escapes, no flow style
@@ -17,10 +19,17 @@ subset raises ConfigError, so the rules that need them fail closed instead of gu
         runner_private: "runner-a"
 
 The three lists may appear in any order, each at most once. Comments, blank lines, and any other top-level key are skipped.
+A key that looks like a misspelling of one of the keys read (within two edits, or the same ignoring case and hyphens: `docs_root`,
+`Design-Repos`, `workflows`) is an error that names it (`NearMissKey`), never an absent key: an absent `docs_roots` is the default, so
+a typo would silently drop a protection. Keys far from these are the project's own and are skipped.
 Flow style, anchors, aliases, tags, tabs, block scalars, a repeated key, a quoted key, and a second YAML document are errors
 inside the keys that are read. Plain values that YAML would not read as a string (numbers, true, false, null) are errors; quote
 them.
 
+`docs_roots` lists the directories that hold the change requests (`<root>cr/`) and the ADRs (`<root>adr/`): a design PR may change
+only paths under them (PC-4) and an implementation or change PR may not change the approved records in them (PC-5). The owned
+templates `cr/_template/` and `adr/_template.md` are not approved records. Absent key: `docs/`. An empty list, or one that is not
+a list of distinct relative directories ending in `/`, is an error.
 `design_repos` lists the repositories (owner/name) whose merged design PRs an implementation PR may reference (rule PC-3).
 `operator_paths` is the operator set of rule PC-8: an entry matches a path as an exact path, or as a directory prefix when it
 ends with `/`, or as the prefix left when a final `*/` loses its `*`. Case-sensitive. An explicit `[]` makes PC-8 inactive.
@@ -31,7 +40,7 @@ a missing key fails closed.
 import re
 from dataclasses import dataclass
 
-from .errors import ConfigError
+from .errors import ConfigError, NearMissKey
 
 MAX_TEXT = 65536
 MAX_ENTRY = 200
@@ -40,6 +49,7 @@ _LABEL = re.compile(r"[A-Za-z0-9_.-]{0,64}")
 _KEYS = frozenset({"name", "runner", "runner_private"})
 _REPO = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})/(?!\.{1,2}$)[A-Za-z0-9._-]{1,100}")
 _PATH_ENTRY = re.compile(r"[A-Za-z0-9_.][A-Za-z0-9_./-]*(?:\*/)?")
+_ROOT_ENTRY = re.compile(r"[A-Za-z0-9_.][A-Za-z0-9_.-]*(?:/[A-Za-z0-9_.-]+)*/")
 
 _PLAIN = r"[A-Za-z0-9_.][A-Za-z0-9_.-]*"
 _VALUE = rf"(?:{_PLAIN}|\"[A-Za-z0-9_.-]*\"|'[A-Za-z0-9_.-]*')"
@@ -50,13 +60,46 @@ _ITEM = re.compile(rf"(?P<indent> *)- +(?P<val>{_LIST_PLAIN}|{_LIST_QUOTED}){_CO
 _TOP_ARCH = re.compile(r"architectures:(?P<rest>(?: .*)?)")
 _TOP_WORKFLOW = re.compile(r"workflow:(?P<rest>(?: .*)?)")
 _ODD_TOP = re.compile(r"""(?:["'](?:architectures|workflow)|\? |<<|(?:architectures|workflow)(?![A-Za-z0-9_.-]))""")
-_CHILD_KEY = re.compile(r"(?P<key>design_repos|operator_paths):(?P<rest>(?: .*)?)")
-_ODD_CHILD = re.compile(r"""(?:["'](?:design_repos|operator_paths)|\? |<<|(?:design_repos|operator_paths)(?![A-Za-z0-9_.-]))""")
+_CHILD_KEY = re.compile(r"(?P<key>design_repos|operator_paths|docs_roots):(?P<rest>(?: .*)?)")
+_ODD_CHILD = re.compile(r"""(?:["'](?:design_repos|operator_paths|docs_roots)|\? |<<|(?:design_repos|operator_paths|docs_roots)(?![A-Za-z0-9_.-]))""")
 _EMPTY_LIST = re.compile(rf" +\[\]{_COMMENT}")
 _NOTHING = re.compile(_COMMENT)
 _FIRST = re.compile(rf"(?P<indent> *)-(?P<gap> +)(?P<key>[a-z_]+):(?: +(?P<val>{_VALUE}))?{_COMMENT}")
 _NEXT = re.compile(rf"(?P<indent> +)(?P<key>[a-z_]+):(?: +(?P<val>{_VALUE}))?{_COMMENT}")
 _NOT_A_STRING = re.compile(r"(?i)(?:true|false|null|~|yes|no|on|off|y|n)|[-+.]?[0-9].*")
+
+
+TOP_KEYS = ("architectures", "workflow")
+WORKFLOW_KEYS = ("design_repos", "operator_paths", "docs_roots")
+_PLAIN_KEY = re.compile(r"(?P<key>[A-Za-z0-9_.-]+):(?: .*)?")
+MAX_DISTANCE = 2
+
+
+def _distance(a, b):
+    """The edit distance of two short strings (insert, delete, replace one character)."""
+    row = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        new = [i]
+        for j, cb in enumerate(b, 1):
+            new.append(min(row[j] + 1, new[j - 1] + 1, row[j - 1] + (ca != cb)))
+        row = new
+    return row[-1]
+
+
+def _near_miss(key, known):
+    """True for a key that is not one of `known` but is, once case and hyphens are ignored, within two edits of one. A key far
+    from every known key (a project's own key) is not."""
+    if key in known:
+        return False
+    plain = key.lower().replace("-", "_")
+    return any(plain == name or _distance(plain, name) <= MAX_DISTANCE for name in known)
+
+
+def _check_key(line, known):
+    """Raise NearMissKey when the line is `key:` with a key that looks like a misspelling of one of `known`."""
+    match = _PLAIN_KEY.fullmatch(line)
+    if match and _near_miss(match.group("key"), known):
+        raise NearMissKey(match.group("key"))
 
 
 @dataclass(frozen=True)
@@ -100,6 +143,7 @@ def parse_yaml(text):
                 continue
             raise ConfigError("more than one YAML document")
         seen_content = True
+        _check_key(line, TOP_KEYS)
         if _ODD_TOP.match(line):
             shape = _TOP_ARCH if line.startswith("architectures") else _TOP_WORKFLOW
             if not shape.fullmatch(line):
@@ -177,6 +221,7 @@ def _read_workflow(lines, index):
         if indent != child:
             continue
         body = line[child:]
+        _check_key(body, WORKFLOW_KEYS)
         if _ODD_CHILD.match(body):
             match = _CHILD_KEY.fullmatch(body)
             if not match:
@@ -263,6 +308,28 @@ def design_repos(config):
     if not all(len(r) <= MAX_ENTRY and _REPO.fullmatch(r) for r in repos):
         raise ConfigError("design_repos entry is not valid")
     return repos
+
+
+DEFAULT_DOCS_ROOTS = ("docs/",)
+
+
+def docs_roots(config):
+    """The directories that hold the records, as a tuple. An absent key (in a configuration that was read) is the default
+    `docs/`; a missing file and anything malformed raise ConfigError, so PC-4 and PC-5 fail closed."""
+    if config is None:
+        raise ConfigError("configuration is missing")
+    if not isinstance(config, dict):
+        raise ConfigError("configuration is not a mapping")
+    workflow = config.get("workflow", {})
+    if not isinstance(workflow, dict):
+        raise ConfigError("workflow is not a mapping")
+    if "docs_roots" not in workflow:
+        return DEFAULT_DOCS_ROOTS
+    roots = _workflow_list(config, "docs_roots")
+    if not roots or not all(len(r) <= MAX_ENTRY and _ROOT_ENTRY.fullmatch(r) and
+                            all(part not in (".", "..") for part in r[:-1].split("/")) for r in roots):
+        raise ConfigError("docs_roots entry is not valid")
+    return roots
 
 
 def is_operator_path(path, entries):

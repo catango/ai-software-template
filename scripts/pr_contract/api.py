@@ -17,7 +17,7 @@ import subprocess
 from pathlib import Path
 
 from . import config
-from .errors import ApiError, InputError, LimitExceeded, NotFound
+from .errors import ApiError, InputError, LimitExceeded, NotFound, NotReadable
 from .model import FileChange, PullRequest
 
 MAX_FILES = 3000
@@ -130,7 +130,7 @@ class GhClient:
         if code == 404:
             raise NotFound("not found")
         if code in (401, 403) and "rate limit" not in lowered and "abuse" not in lowered:
-            raise NotFound("not readable")
+            raise NotReadable("not readable")
         if code == 429 or "rate limit" in lowered:
             raise ApiError(f"rate limited (HTTP {code or 429})")
         raise ApiError(f"HTTP {code}" if code else "gh failed")
@@ -163,7 +163,7 @@ class GhClient:
         return "pull_request" if "pull_request" in data else "issue"
 
     def repo_readable(self, repo):
-        """Returns when the repository can be read; raises NotFound when it is missing or not readable."""
+        """Returns when the repository can be read; raises NotFound (missing) or NotReadable (refused)."""
         target = check_repo(repo)
         parse_private(self._get(["gh", "api", f"repos/{target}"]))
 
@@ -171,12 +171,13 @@ class GhClient:
         return parse_private(self._get(["gh", "api", f"repos/{self.repo}"]))
 
     def file_text(self, sha, path):
-        """The text of a file of this repository at a commit; None when the file does not exist there."""
+        """The text of a file of this repository at a commit; None only when the API answers 404 (the file does not exist there).
+        A refused read (401, 403) raises NotReadable."""
         check_sha(sha)
         check_path(path)
         try:
             data = self._get(["gh", "api", f"repos/{self.repo}/contents/{path}?ref={sha}"])
-        except NotFound:
+        except NotFound:  # only a 404; a refused read (NotReadable) is not caught here
             return None
         return decode_contents(data)
 

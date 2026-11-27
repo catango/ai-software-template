@@ -1,0 +1,6 @@
+exit 1
+pr-contract: PR #10 (type: change)
+FAIL PC-9: architectures in the base configuration is missing or invalid (key docs_root looks like a misspelling)
+FAIL PC-5: docs_roots missing or invalid in the base configuration (key docs_root looks like a misspelling)
+FAIL PC-8: operator_paths missing or invalid in the base configuration (key docs_root looks like a misspelling)
+pr-contract: 3 violations

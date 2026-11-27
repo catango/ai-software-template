@@ -1,0 +1,4 @@
+exit 1
+pr-contract: PR #10 (type: implementation)
+FAIL PC-5: approved file changed: template-dev/docs/cr/CR-1/design.md
+pr-contract: 1 violation

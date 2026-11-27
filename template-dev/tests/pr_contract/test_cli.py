@@ -34,7 +34,7 @@ class Offline(unittest.TestCase):
         self.assertEqual(code, 1)
         lines = out.strip().split("\n")
         self.assertEqual(lines[0], "pr-contract: PR #10 (type: design)")
-        self.assertEqual(lines[1], "FAIL PC-4: path outside docs/: scripts/x.py")
+        self.assertEqual(lines[1], "FAIL PC-4: path outside the record roots: scripts/x.py")
         self.assertEqual(lines[-1], "pr-contract: 1 violation")
 
 

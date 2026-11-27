@@ -25,7 +25,8 @@ point 8 below).
 |---|---|---|
 | PC-1 sections, PC-2 type and prefix | `rules.py` | the template files of the checkout that runs the script (the base) |
 | PC-3 references | `rules.py` | `workflow.design_repos` of the base commit; the API for the PRs |
-| PC-4, PC-5, PC-6, PC-7 | `rules.py` | fixed in the code (docs only, approved files, workflow section, dependency files) |
+| PC-4, PC-5 record roots | `rules.py` | `workflow.docs_roots` of the base commit (default `docs/`); an unreadable key fails |
+| PC-6, PC-7 | `rules.py` | fixed in the code (workflow section, dependency files and `uses:` bumps of one action) |
 | PC-8 operator paths | `rules.py` | `workflow.operator_paths` of the base commit; `[]` makes it inactive; a missing or malformed key fails |
 | PC-9 evidence | `rules.py` | `architectures` of the base commit, the repository's private flag from the API; no default |
 | TC-1 template-sync, TC-2 init | `template_rules.py` | `.template/manifest.toml` of the base commit (and of the head for added paths of a sync); `.template/state.toml` |
@@ -106,3 +107,30 @@ rows that create them.
    `template-sync`) do.
 10. **The job `skills` of `template-ci`** is added here (the plan lists it with row 9) because T-8 names it as the evidence and
     the tests need a job to run in. Row 9 adds the other jobs.
+
+## Follow-up after the review of the first merge
+
+A review of the merged row found seven points. Each was checked against the code before it was changed.
+
+| # | Finding | Verdict | Change |
+|---|---|---|---|
+| 1 | PC-5 protected `docs/cr/_template/*.md` and `docs/adr/_template.md`, which plan row 5 must add | Real | The owned templates are not approved records (`rules.RECORD`, `rules.ADR_TEMPLATE`); a real record next to them is still protected |
+| 2 | PC-4 and PC-5 hard-coded `docs/`, so the template's own records under `template-dev/docs/` failed PC-4 and were unprotected under PC-5 | Real | New key `workflow.docs_roots` (default `docs/`), read from the base commit, in the reader, the schema, `initialize-project`, and the template's own configuration (`docs/` and `template-dev/docs/`). A malformed key fails closed |
+| 3 | The reader accepted a narrower `operator_paths` than the schema | Real | The schema field now has the reader's form (`item_pattern`, `max_length`); a test compares the schema and the reader on every string of a small alphabet up to length 5, and a full configuration round-trips |
+| 4 | A 401 or 403 counted as "file absent" in `file_text` (TC-2 passed on a refused read) | Real | `errors.NotReadable`: only a 404 returns `None`; a refused read is an error (exit 3) |
+| 5 | TC-1 and a new seeded file disagree with design section 4 | A design question, unchanged | A fixture documents the refusal; the question is in the body of the follow-up PR |
+| 6 | PC-7 accepted any `uses:` change, including another action | Real | The removed and added lines must name the same actions in order; a new, removed, swapped or different action fails |
+| 7 | One punctuation mark, or a bare checklist marker, satisfied the non-empty rule | Real for punctuation and markers; not for checklist text | List, quote and checkbox markers do not count and at least one letter or digit is needed. An item with text still counts, because the Checkpoint section of every template is a checklist by design; an untouched template checklist cannot be told from a real one |
+
+The first row of the table needed no new manifest pattern. The configuration of a generated repository now carries `docs_roots`.
+
+## Second follow-up (review of the first follow-up)
+
+| # | Finding | Verdict | Change |
+|---|---|---|---|
+| 1 | A misspelled `workflow` key (`docs_root:`) was skipped, so an absent `docs_roots` meant the default and a typo silently dropped the protection of `template-dev/docs/` | Real | A key within two edits of a policy key (or equal to one ignoring case and hyphens) is an error, `NearMissKey`, at the top level (`workflows`, `architecture`) and in `workflow`. The violation of every rule that reads the configuration names the key. Keys far from the three are the project's own and are still skipped (a project may keep `merge_method` there) |
+| 2 | `NotReadable` was a subclass of `NotFound`, so a future `except NotFound` would catch a refused read | Real (a hazard, not a bug today) | Both derive from a new `ReadError`; the handlers that mean "cannot be read" name both, the CLI catches `ReadError`; a test fails if a refused read is caught as not found |
+| 3 | A Checkpoint left exactly as the template ships it passed PC-1 | Real | Chosen: a section equal to the template's own text (blank lines and trailing spaces ignored, case, order, and box state compared) counts as not filled in, against the template of the base checkout: "section is the unedited template text". Ticking one box, or editing, adding, removing or reordering an item, makes it the author's, so a change PR that keeps the three default items and ticks them passes |
+
+The choice for 3 is a reading of "non-empty" in PC-1, not a new rule: a draft PR opened from `scripts/pr-body` with the other
+sections filled in but the checkpoint untouched is flagged until the first item is ticked.

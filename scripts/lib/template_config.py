@@ -76,6 +76,8 @@ def _check_value(label, value, spec, errors):
         if not isinstance(value, list):
             errors.append(f"{label}: must be a list")
             return
+        if len(value) < spec.get("min_items", 0):
+            errors.append(f"{label}: needs at least {spec['min_items']} entry")
         item_spec = {k: v for k, v in spec.items() if k in ("max_length", "kind")}
         if "item_pattern" in spec:
             item_spec["pattern"] = spec["item_pattern"]
@@ -240,6 +242,7 @@ def project_yaml(config):
         f"  source: {_q(config['template']['source'])}\n",
         "workflow:\n",
         "  design_repos:" + _yaml_list(config["workflow"]["design_repos"], 4),
+        "  docs_roots:" + _yaml_list(config["workflow"]["docs_roots"], 4),
         "  operator_paths:" + _yaml_list(config["workflow"]["operator_paths"], 4),
         "architectures:\n",
     ]

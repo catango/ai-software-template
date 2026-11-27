@@ -12,10 +12,16 @@ github:
 # change cannot widen the policy that judges it.
 #   design_repos    repositories (owner/name) whose merged design pull requests an implementation may reference as
 #                   <owner>/<repo>#<n>. The template's own records live in the repository listed here (rule PC-3).
+#   docs_roots      directories that hold the change requests (<root>cr/) and the ADRs (<root>adr/). A design PR may change
+#                   only paths under them (PC-4); an implementation or change PR may not change the approved records in
+#                   them (PC-5). The template keeps its own records under template-dev/docs/.
 #   operator_paths  paths whose change needs the PR section "Operator script review" (rule PC-8). Empty: the rule is inactive.
 workflow:
   design_repos:
     - "catango/ai-lab-platform"
+  docs_roots:
+    - "docs/"
+    - "template-dev/docs/"
   operator_paths: []
 # Architectures of the CI matrix. Per architecture: `name`, `runner` (the runner label for a public repository) and
 # `runner_private` (for a private one). An empty label means that no runner exists for that repository: the job for that

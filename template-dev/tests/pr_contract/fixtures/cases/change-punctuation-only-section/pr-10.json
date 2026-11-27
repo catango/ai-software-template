@@ -1,0 +1,20 @@
+{
+ "number": 10,
+ "title": "A title",
+ "body": "<!-- PR type: change (Class 1 or 2). Branch: change/<issue-or-short-id>-<slug>. Rule PC-1 requires every section below, non-empty. -->\n## Summary\n.\n\n## Class\nFilled in for the test.\n\n## Acceptance criteria\nFilled in for the test.\n\n## Validation\nFilled in for the test.\n\n## Architecture evidence\nFilled in for the test.\n\n## Checkpoint\n- [ ] item\n",
+ "state": "open",
+ "draft": true,
+ "merged": false,
+ "user": {
+  "login": "example-machine"
+ },
+ "head": {
+  "ref": "change/1-thing",
+  "sha": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+ },
+ "base": {
+  "ref": "main",
+  "sha": "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2"
+ },
+ "changed_files": 1
+}

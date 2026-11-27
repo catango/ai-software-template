@@ -114,7 +114,7 @@ class Reader(unittest.TestCase):
         self.assertEqual(parse(text), {"workflow": {"operator_paths": [], "design_repos": []}})
 
     def test_the_other_key_named_like_a_read_key_is_not_confused(self):
-        parsed = parse("workflow_x: 1\nworkflow:\n  design_repos_all: [1]\n  design_repos: []\n  operator_paths: []\n")
+        parsed = parse("workflow_extra: 1\nworkflow:\n  design_repos_all: [1]\n  design_repos: []\n  operator_paths: []\n")
         self.assertEqual(parsed["workflow"], {"design_repos": [], "operator_paths": []})
 
     def test_design_repos_entries_are_validated(self):
@@ -136,6 +136,83 @@ class Reader(unittest.TestCase):
         for name in ("", "-a", "A", "a b", "x" * 21, "a.b"):
             with self.subTest(name=name), self.assertRaises(ConfigError):
                 config.architectures({"architectures": [{"name": name}]})
+
+
+class Misspellings(unittest.TestCase):
+    """A key that looks like one of the policy keys but is not one is an error: it must never be read as an absent key (an absent
+    `docs_roots` is the default, so a typo would silently drop protection). Keys that are far from every policy key are skipped."""
+
+    def test_a_typo_of_each_workflow_key_is_an_error_that_names_the_key(self):
+        from pr_contract.errors import NearMissKey
+        typos = {"docs_roots": ("docs_root", "doc_roots", "docs-roots", "Docs_roots", "dosc_roots", "docsroots", "docs_rootss"),
+                 "design_repos": ("design_repo", "designrepos", "desing_repos", "design-repos", "Design_Repos"),
+                 "operator_paths": ("operator_path", "operators_paths", "operater_paths", "operator-paths", "operatorpaths")}
+        for known, names in typos.items():
+            for name in names:
+                with self.subTest(known=known, typo=name):
+                    with self.assertRaises(NearMissKey) as caught:
+                        parse(f"workflow:\n  {name}: []\n  design_repos: []\n")
+                    self.assertEqual(caught.exception.key, name)
+                    self.assertIsInstance(caught.exception, ConfigError)
+
+    def test_a_typo_of_a_top_level_key_is_an_error(self):
+        for name in ("workflows", "workflo", "architecture", "architecturs", "Architectures", "work-flow"):
+            with self.subTest(typo=name), self.assertRaises(ConfigError):
+                parse(f"{name}:\n  docs_roots: []\n")
+
+    def test_the_typo_is_found_wherever_it_stands_and_whatever_it_holds(self):
+        for text in ("workflow:\n  design_repos: []\n  operator_paths: []\n  docs_root:\n    - a/\n",
+                     "workflow:\n  docs_root: {a: [1]}\n", "workflow:\n  docs_root: |\n    x\n",
+                     "workflow:\n  # c\n  docs_roots_: []\n"):
+            with self.subTest(text=text), self.assertRaises(ConfigError):
+                parse(text)
+
+    def test_keys_that_are_far_from_the_policy_keys_are_skipped(self):
+        for name in ("merge_method", "change_classes", "design_repos_all", "release_tags", "docs", "paths", "roots", "owner"):
+            parsed = parse(f"workflow:\n  {name}: [1, 2]\n  design_repos: []\n  operator_paths: []\n")
+            self.assertEqual(parsed["workflow"], {"design_repos": [], "operator_paths": []}, name)
+        for name in ("github", "project", "template", "schema_version", "workflow_extra", "post_init"):
+            self.assertEqual(parse(f"{name}: 1\n"), {}, name)
+
+    def test_the_exact_keys_are_never_near_misses(self):
+        parsed = parse("workflow:\n  design_repos: []\n  operator_paths: []\n  docs_roots:\n    - docs/\narchitectures: []\n")
+        self.assertEqual(sorted(parsed), ["architectures", "workflow"])
+
+    def test_a_misspelled_key_inside_another_keys_block_is_not_a_key(self):
+        # indented text under a skipped key is that key's value, not a child of workflow
+        parsed = parse("workflow:\n  other:\n    docs_root: 1\n  design_repos: []\n  operator_paths: []\n")
+        self.assertEqual(parsed["workflow"], {"design_repos": [], "operator_paths": []})
+
+
+class DocsRoots(unittest.TestCase):
+    """`workflow.docs_roots`: where the records of a repository live (rules PC-4 and PC-5). Absent: `docs/`."""
+
+    def test_the_documented_form_is_read(self):
+        parsed = parse('workflow:\n  docs_roots:\n    - "docs/"\n    - template-dev/docs/\n  design_repos: []\n')
+        self.assertEqual(config.docs_roots(parsed), ("docs/", "template-dev/docs/"))
+
+    def test_an_absent_key_is_the_default_but_an_absent_file_is_not(self):
+        for parsed in ({}, {"workflow": {}}, {"architectures": []}):
+            self.assertEqual(config.docs_roots(parsed), ("docs/",))
+        with self.assertRaises(ConfigError):
+            config.docs_roots(None)
+        with self.assertRaises(ConfigError):
+            config.docs_roots({"workflow": []})
+
+    def test_a_malformed_value_fails_closed(self):
+        bad = {"empty": [], "string": "docs/", "null": None, "no slash": ["docs"], "absolute": ["/docs/"], "dot dot": ["a/../b/"],
+               "dot": ["./"], "root": ["/"], "empty entry": [""], "star": ["docs/*/"], "star end": ["docs*/"], "space": ["my docs/"],
+               "not a string": [5], "duplicate": ["docs/", "docs/"], "too long": ["a" * 300 + "/"], "double slash": ["a//b/"],
+               "backslash": ["a\\b/"]}
+        for name, value in bad.items():
+            with self.subTest(case=name), self.assertRaises(ConfigError):
+                config.docs_roots({"workflow": {"docs_roots": value}})
+
+    def test_the_text_form_is_strict_like_the_other_lists(self):
+        for text in ("workflow:\n  docs_roots: [docs/]\n", "workflow:\n  docs_roots:\n", "workflow:\n  docs_roots: docs/\n",
+                     "workflow:\n  docs_roots: []\n  docs_roots: []\n", "workflow:\n  \"docs_roots\": []\n"):
+            with self.subTest(text=text), self.assertRaises(ConfigError):
+                parse(text)
 
 
 class AgainstTheWriter(unittest.TestCase):
@@ -163,9 +240,55 @@ class AgainstTheWriter(unittest.TestCase):
     def test_a_filled_configuration_round_trips(self):
         loaded = self.configs()[0]
         loaded["workflow"] = {"design_repos": ["example-owner/design-records", "other-owner/x.y"],
-                              "operator_paths": ["ops/", "tools/run.yml", "roles/op_*/"]}
+                              "operator_paths": ["ops/", "tools/run.yml", "roles/op_*/"], "docs_roots": ["docs/", "records/"]}
         parsed = parse(template_config.project_yaml(loaded))
         self.assertEqual(parsed["workflow"], loaded["workflow"])
+
+    def test_every_string_the_schema_accepts_is_a_string_the_reader_accepts(self):
+        """The schema fields and the reader must agree, or `initialize-project` writes a file that fails closed on every PR.
+        Every string of a small alphabet, up to length 5, is judged by both: accepted by the schema implies read back unchanged."""
+        import itertools
+        fields = {f["key"]: f for f in template_config.load_schema(helpers.ROOT / ".template" / "config.schema.toml")}
+        alphabet = "a./*- +~_"
+        accepted = {"workflow.operator_paths": 0, "workflow.docs_roots": 0}
+        for key, reader in (("workflow.operator_paths", config.operator_paths), ("workflow.docs_roots", config.docs_roots)):
+            spec = fields[key]
+            name = key.split(".")[1]
+            for length in range(1, 6):
+                for chars in itertools.product(alphabet, repeat=length):
+                    value = "".join(chars)
+                    errors = []
+                    template_config._check_value(key, [value], spec, errors)
+                    if errors:
+                        continue
+                    accepted[key] += 1
+                    parsed = parse(f'workflow:\n  {name}:\n    - {json.dumps(value)}\n')
+                    self.assertEqual(reader(parsed), (value,), value)
+        self.assertGreater(accepted["workflow.operator_paths"], 50)
+        self.assertGreater(accepted["workflow.docs_roots"], 5)
+
+    def test_the_wider_forms_that_the_reader_refuses_are_refused_by_the_schema(self):
+        fields = {f["key"]: f for f in template_config.load_schema(helpers.ROOT / ".template" / "config.schema.toml")}
+        for value in ("ops/*/scripts/", "a b/", "a+b", "a~b", "ops/*/", "a/*", "*", "a" * 201, "-a/", "a//b", "a/./b", "a/../b"):
+            errors = []
+            template_config._check_value("workflow.operator_paths", [value], fields["workflow.operator_paths"], errors)
+            self.assertTrue(errors, value)
+        for value in ("ops/", "a.yml", "roles/op_*/", "a/b-c/d.py", ".github/x", "x" * 200):
+            errors = []
+            template_config._check_value("workflow.operator_paths", [value], fields["workflow.operator_paths"], errors)
+            self.assertEqual(errors, [], value)
+
+    def test_every_valid_field_of_the_schema_round_trips_in_a_full_configuration(self):
+        loaded = self.configs()[0]
+        loaded["workflow"] = {"design_repos": ["a1-b/x.y", "Z/z_z-1"], "operator_paths": ["ops/", "a.yml", "roles/op_*/", "x/y-z/q.py"],
+                              "docs_roots": ["docs/", "template-dev/docs/", ".records/x/"]}
+        loaded["architectures"] = [{"name": "a", "runner": "-x.y_z", "runner_private": ""},
+                                   {"name": "x" * 20, "runner": "r" * 60, "runner_private": "r" * 60}]
+        parsed = parse(template_config.project_yaml(loaded))
+        self.assertEqual(parsed["workflow"], loaded["workflow"])
+        self.assertEqual([(a["name"], a["runner"], a["runner_private"]) for a in parsed["architectures"]],
+                         [(a["name"], a["runner"], a["runner_private"]) for a in loaded["architectures"]])
+        self.assertEqual([a.name for a in config.architectures(parsed)], ["a", "x" * 20])
 
     def test_this_repositorys_own_file_is_read(self):
         parsed = parse((helpers.ROOT / "config" / "project.yaml").read_text())

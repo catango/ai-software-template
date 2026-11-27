@@ -1,0 +1,4 @@
+exit 1
+pr-contract: PR #10 (type: design)
+FAIL PC-4: path outside the record roots: template-dev/tests/a.py
+pr-contract: 1 violation

@@ -11,7 +11,7 @@ from pathlib import Path
 
 from . import rules
 from .api import FixtureClient, GhClient, check_repo
-from .errors import ApiError, InputError, LimitExceeded, NotFound
+from .errors import ApiError, InputError, LimitExceeded, ReadError
 from .sanitize import clean, span
 
 DEFAULT_TEMPLATES = Path(__file__).resolve().parents[2] / ".github" / "PULL_REQUEST_TEMPLATE"
@@ -66,7 +66,7 @@ def main(argv=None, client=None):
     except InputError as error:
         print(f"pr-contract: error: {clean(error, 200)}", file=sys.stderr)
         return 2
-    except (ApiError, NotFound, LimitExceeded) as error:
+    except (ApiError, ReadError, LimitExceeded) as error:
         print(f"pr-contract: error: {clean(error, 200)}", file=sys.stderr)
         return 3
     label = rules.classify(pr)

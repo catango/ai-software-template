@@ -93,7 +93,32 @@ class QualifiedReferenceTests(unittest.TestCase):
             self.assertEqual(markdown.parse(f"<!-- PR type: {kind}. -->").marker, kind)
 
 
+class SameTextTests(unittest.TestCase):
+    def test_same_text_ignores_blank_lines_and_trailing_space_but_not_ticks_or_words(self):
+        a = "- [ ] One\n- [ ] Two\n"
+        self.assertTrue(markdown.same_text(a, "\n- [ ] One  \n\n- [ ] Two"))
+        self.assertTrue(markdown.same_text(a, "- [ ] One\r\n- [ ] Two\r\n"))
+        for other in ("- [x] One\n- [ ] Two", "- [ ] One", "- [ ] Two\n- [ ] One", "- [ ] One\n- [ ] Two\n- [ ] Three", "- [ ] one\n- [ ] Two",
+                      "- [ ] One\n- [ ] Two!"):
+            self.assertFalse(markdown.same_text(a, other), other)
+
+
 class HasContentTests(unittest.TestCase):
+    def test_punctuation_symbols_and_markers_alone_are_not_content(self):
+        for text in (".", "-", "---", "...", "?!", "*", "- [ ]", "- [x]", "* [ ]  \n- [ ]", "1.", "1) ", "> ", "- - -", "n/a" [:0] + "/",
+                     "```\n```", "`", "$", "©", "\u200b-"):
+            with self.subTest(text=text):
+                self.assertFalse(markdown.has_content(text), repr(text))
+
+    def test_a_word_or_digit_is_content_with_or_without_list_markers(self):
+        for text in ("x", "7", "n/a", "- [ ] item", "- [x] done", "* one\n* two", "1. first", "Hello.", "ß", "漢字", "- [ ] a",
+                     "1.5"):
+            with self.subTest(text=text):
+                self.assertTrue(markdown.has_content(text), repr(text))
+
+    def test_markers_inside_a_line_do_not_count_as_markers(self):
+        self.assertTrue(markdown.has_content("see - [ ] here"))
+
     def test_cases(self):
         self.assertFalse(markdown.has_content(""))
         self.assertFalse(markdown.has_content(" \n\t\n"))
