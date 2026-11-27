@@ -39,8 +39,8 @@ def is_posint(value):
 
 def parse_classes(raw, findings):
     classes = {}
-    if raw.get("schema") != 1:
-        findings.append((BUDGETS, 1, "schema must be 1"))
+    if raw.get("schema_version") != 1:
+        findings.append((BUDGETS, 1, "schema_version must be 1"))
     for name, entry in (raw.get("class") or {}).items():
         label = f"class.{name}"
         if not isinstance(entry, dict):

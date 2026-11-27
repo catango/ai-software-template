@@ -13,7 +13,7 @@
 #
 # Bytes are exact and stable; tokens are never computed or gated. Values are a judgement.
 
-schema = 1
+schema_version = 1
 
 [class.claude-md]
 paths = ["CLAUDE.md"]

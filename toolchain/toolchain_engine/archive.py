@@ -37,12 +37,19 @@ def _check_link(rel, target):
 
 
 def extract(src, fmt, dest, strip, limits):
-    if fmt in ("tar.gz", "tar.xz"):
-        _extract_tar(Path(src), "r:gz" if fmt == "tar.gz" else "r:xz", Path(dest), strip, limits)
-    elif fmt == "zip":
-        _extract_zip(Path(src), Path(dest), strip, limits)
-    else:
-        raise ArchiveError("unsupported archive format")
+    """Extract SRC into DEST. Every failure is an ArchiveError: a member listed twice, or a file and a directory of the same name,
+    must end as a rejected archive, not as a traceback of the engine."""
+    try:
+        if fmt in ("tar.gz", "tar.xz"):
+            _extract_tar(Path(src), "r:gz" if fmt == "tar.gz" else "r:xz", Path(dest), strip, limits)
+        elif fmt == "zip":
+            _extract_zip(Path(src), Path(dest), strip, limits)
+        else:
+            raise ArchiveError("unsupported archive format")
+    except ArchiveError:
+        raise
+    except (OSError, tarfile.TarError, zipfile.BadZipFile, EOFError, ValueError):
+        raise ArchiveError("members of the archive collide or cannot be written") from None
 
 
 def _extract_tar(src, mode, dest, strip, limits):

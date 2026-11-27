@@ -22,6 +22,56 @@ def extract(data, fmt="tar.gz", strip=1, limits=None):
         return None, tree(dest)
 
 
+class Conflicts(unittest.TestCase):
+    """Members that collide or conflict end as an ArchiveError, never as a traceback of the engine, and leave nothing behind."""
+
+    def zip_of(self, entries):
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            return zip_bytes(entries)
+
+    def assert_rejected(self, data, fmt):
+        error, files = extract(data, fmt)
+        self.assertIsInstance(error, ArchiveError)
+        return files
+
+    def test_a_zip_member_listed_twice(self):
+        self.assert_rejected(self.zip_of([("t/a", b"1", 0o100644), ("t/a", b"2", 0o100644)]), "zip")
+
+    def test_a_zip_file_and_a_directory_of_the_same_name(self):
+        self.assert_rejected(self.zip_of([("t/a", b"1", 0o100644), ("t/a/b", b"2", 0o100644)]), "zip")
+
+    def test_a_zip_directory_entry_over_a_file(self):
+        self.assert_rejected(self.zip_of([("t/a", b"1", 0o100644), ("t/a/", b"", 0o040755)]), "zip")
+
+    def test_a_tar_file_and_a_directory_of_the_same_name(self):
+        data = tar_bytes([("t/a", "file", b"1", 0o644), ("t/a/b", "file", b"2", 0o644)])
+        self.assert_rejected(data, "tar.gz")
+
+    def test_a_tar_directory_over_a_file(self):
+        data = tar_bytes([("t/a", "file", b"1", 0o644), ("t/a/", "dir", None, 0o755)])
+        self.assert_rejected(data, "tar.gz")
+
+    def test_install_reports_a_conflicting_archive_as_a_failed_install(self):
+        import io
+        from toolchain_engine import cli
+        from helpers import FakeFetcher, ZERO
+        data = self.zip_of([("t/alpha", b"#!/bin/sh\n", 0o100755), ("t/alpha", b"#!/bin/sh\n", 0o100755)])
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            (root / "toolchain").mkdir()
+            text = helpers.manifest_text(amd64_sha=helpers.sha256(data), arm64_sha=ZERO).replace('format = "tar.gz"', 'format = "zip"')
+            (root / "toolchain" / "ci-manifest.toml").write_text(text)
+            out, err = io.StringIO(), io.StringIO()
+            code = cli.main(["--manifest", str(root / "toolchain" / "ci-manifest.toml"), "--root", str(root), "install", "--profile", "gate",
+                             "--prefix", str(root / "prefix"), "--arch", "amd64", "--only", "alpha"],
+                            fetcher=FakeFetcher({helpers.AMD64_URL: data}), out=out, err=err)
+            self.assertEqual(code, 1, out.getvalue() + err.getvalue())
+            self.assertIn("FAILED at install: extraction rejected", out.getvalue())
+            self.assertFalse((root / "prefix" / "tools" / "alpha").exists())
+
+
 class Valid(unittest.TestCase):
     def test_strip_one_and_modes(self):
         error, files = extract(helpers.good_archive())
