@@ -9,7 +9,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--apply", action="store_true")
     value = os.environ["SERVICE_TOKEN"]
-    print(value)
+    size = len(value)
 
 
 if __name__ == "__main__":

@@ -9,7 +9,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--apply", action="store_true")
     secret = sys.argv[1]
-    print(secret)
+    size = len(secret)
 
 
 if __name__ == "__main__":
