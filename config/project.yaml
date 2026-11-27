@@ -1,0 +1,14 @@
+# Configuration of this repository. Seeded: scripts/initialize-project writes it from the configuration it is given,
+# and the repository owns it from then on. This copy drives the CI of the template itself.
+schema_version: 1
+# Architectures of the CI matrix. Per architecture: `name`, `runner` (the runner label for a public repository) and
+# `runner_private` (for a private one). An empty label means that no runner exists for that repository: the job for that
+# architecture then writes "not run: <name>" instead of running the gate. Every name must be declared in
+# toolchain/ci-manifest.toml, which holds the tool artifacts for it.
+architectures:
+  - name: "amd64"
+    runner: "ubuntu-24.04"
+    runner_private: "ubuntu-24.04"
+  - name: "arm64"
+    runner: "ubuntu-24.04-arm"
+    runner_private: ""

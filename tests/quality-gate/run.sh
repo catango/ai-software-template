@@ -123,7 +123,7 @@ gen_hygiene_cases() {
     printf '%s\n' "$2" >"$d/$1/EXPECT"
     printf '%s\n' "$3" >"$d/$1/SECRET"
   }
-  mk fail-ocid "identifier" "$(printf '%s%s.%s.%s.%s.%s' ocid 1 instance oc1 uk-london-1 "$(rep 20 a)")"
+  mk fail-cloud-resource-id "identifier" "$(printf 'oc%s%s.%s.%s.%s.%s' id 1 instance oc1 uk-london-1 "$(rep 20 a)")"
   mk fail-private-ipv4 "IPv4" "$(printf '%s.%s.%s.%s' 10 0 0 7)"
   mk fail-public-ipv4 "IPv4" "$(printf '%s.%s.%s.%s' 8 8 8 8)"
   mk fail-email "email" "$(printf '%s%s%s' user "$at" example.com)"
@@ -146,7 +146,7 @@ gen_hygiene_cases() {
   printf '%s\n' "Ask @example-approver in the pull request." >"$d/pass-handle-outside-codeowners/file.txt"
   secret=$(printf '%s.%s.%s.%s' 192 0 2 1)
   mkdir -p "$d/pass-doc-range-and-noreply"
-  printf '%s\n%s\n' "$secret" "1234+bot${at}users.noreply.github.com" >"$d/pass-doc-range-and-noreply/file.txt"
+  printf '%s\n%s\n%s\n' "$secret" "1234+bot${at}users.noreply.github.com" "$(printf '%s.%s.%s.%s/%s' 0 0 0 0 0)" >"$d/pass-doc-range-and-noreply/file.txt"
 }
 
 run_check_fixtures() {

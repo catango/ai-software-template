@@ -111,6 +111,22 @@ path = "toolchain/ci-manifest.toml"
 class = "owned"
 
 [[path]]
+path = "toolchain/toolchain_engine/cli.py"
+class = "owned"
+
+[[path]]
+path = "tests/quality-gate/run.sh"
+class = "owned"
+
+[[path]]
+path = "tests/quality-gate/fixtures/forbidden-api/fail-git-tag/script.sh"
+class = "owned"
+
+[[path]]
+path = "scripts/lib/ci_matrix.py"
+class = "owned"
+
+[[path]]
 path = "docs/PLATFORM.md"
 class = "seeded"
 

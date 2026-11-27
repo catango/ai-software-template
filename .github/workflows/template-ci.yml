@@ -1,0 +1,111 @@
+name: template-ci
+
+# Template-only: removed by scripts/initialize-project. The jobs run the tests of template-dev/. The gate itself, with its
+# fixtures (tests/quality-gate/), runs through ci.yml like in every generated repository. The aggregate `template-ci` is the
+# third required check of the template repository.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  push:
+    branches: [main]
+
+permissions: {}
+
+concurrency:
+  group: template-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # T-1 and the generation part of T-2: every file has one class, initialize-project removes every template-only path.
+  manifest:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Run the manifest tests
+        shell: bash
+        run: template-dev/run-tests.sh manifest
+
+  # T-15 and the scan part of T-21: no identifier pattern and no platform reference in the payload or a generated tree.
+  leak:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Run the leak tests
+        shell: bash
+        run: template-dev/run-tests.sh leak
+
+  # the install engine and the CI manifest: both architectures and checksums, tamper and archive rules (T-14).
+  engine:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Run the engine tests
+        shell: bash
+        run: template-dev/run-tests.sh engine
+
+  # the CI matrix, the not-run summary, and the private-flag condition (T-3, gate part).
+  ci:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Run the ci tests
+        shell: bash
+        run: template-dev/run-tests.sh ci
+
+  # The one required check of this workflow: it needs every other job, always runs, and fails unless each succeeded.
+  template-ci:
+    needs: [manifest, leak, engine, ci]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Fail unless every needed job succeeded
+        shell: bash
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          python3 -I - <<'PY'
+          import json
+          import os
+          import sys
+
+          try:
+              needs = json.loads(os.environ["NEEDS"])
+          except (KeyError, ValueError):
+              needs = None
+          if not isinstance(needs, dict) or not needs:
+              print("template-ci: the needs context is empty or unreadable")
+              sys.exit(1)
+          rows = sorted((name, str(job.get("result", "")) if isinstance(job, dict) else "") for name, job in needs.items())
+          print("\n".join(f"{name}: {result or 'unknown'}" for name, result in rows))
+          bad = [name for name, result in rows if result != "success"]
+          if bad:
+              print("template-ci: not successful: " + ", ".join(bad))
+              sys.exit(1)
+          PY

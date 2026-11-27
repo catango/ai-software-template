@@ -32,6 +32,8 @@ DIGEST_RE = re.compile(r"@sha256:[0-9a-f]{64}$")
 MATRIX_REF = re.compile(r"\$\{\{\s*matrix\.([A-Za-z0-9_-]+)\s*\}\}")
 EXPRESSION = re.compile(r"\$\{\{.*?\}\}", re.S)
 # Required check names and the only workflow file that may define each (WP-16).
+# The required names that are the aggregate job of their file (it needs every other job of the file and always runs).
+AGGREGATES = ("quality-gate", "template-ci")
 REQUIRED = {"pr-contract": "pr-contract.yml", "quality-gate": "ci.yml", "template-ci": "template-ci.yml"}
 WORKFLOWS = ".github/workflows/"
 
@@ -206,7 +208,31 @@ def runner_values(job, key):
     return values or None
 
 
-def check_runs_on(path, source, job_id, job, labels, findings):
+def planned_matrix(path, job, jobs):
+    """True for the one dynamic matrix that WP-13 accepts: the planned matrix of ci.yml.
+
+    The job has `runs-on: ${{ matrix.runner }}` and `matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}`, needs the job `plan`,
+    and `plan` is a job of the same file on a base label, without a job-level `if:`, whose output `matrix` is the output of its
+    step `plan`. The labels are then chosen at run time by scripts/lib/ci_matrix.py from the architectures of the configuration;
+    this check cannot see them. Nothing else may take a runner from a computed matrix.
+    """
+    if path != WORKFLOWS + "ci.yml":
+        return False
+    strategy = job.get("strategy")
+    matrix = strategy.get("matrix") if isinstance(strategy, dict) else None
+    if not isinstance(matrix, str) or re.sub(r"\s+", "", matrix) != "${{fromJSON(needs.plan.outputs.matrix)}}":
+        return False
+    if "plan" not in _needs(job):
+        return False
+    plan = jobs.get("plan")
+    if not isinstance(plan, dict) or "if" in plan or plan.get("runs-on") not in BASE_LABELS:
+        return False
+    outputs = plan.get("outputs")
+    value = outputs.get("matrix") if isinstance(outputs, dict) else None
+    return isinstance(value, str) and re.sub(r"\s+", "", value) == "${{steps.plan.outputs.matrix}}"
+
+
+def check_runs_on(path, source, job_id, job, labels, findings, jobs=None):
     line = source.find(job_id, r"^\s*runs-on:")
 
     def bad(message):
@@ -237,6 +263,8 @@ def check_runs_on(path, source, job_id, job, labels, findings):
         if "${{" in candidate:
             match = MATRIX_REF.fullmatch(candidate.strip())
             values = runner_values(job, match.group(1)) if match else None
+            if values is None and match and match.group(1) == "runner" and planned_matrix(path, job, jobs or {}):
+                continue
             if values is None:
                 bad("runs-on is an expression that cannot be resolved to a literal list (use a literal or a matrix value)")
                 continue
@@ -335,7 +363,7 @@ def check_required_jobs(path, source, jobs, findings):
         job_id for job_id, job in jobs.items()
         if isinstance(job, dict) and (job.get("name") if isinstance(job.get("name"), str) else job_id) == name
     ]
-    aggregate = required[0] if name == "quality-gate" and required else None
+    aggregate = required[0] if name in AGGREGATES and required else None
     others = [job_id for job_id in jobs if job_id != aggregate] if aggregate else []
     for job_id in (required[:1] if aggregate is None else [aggregate] + others):
         job = jobs[job_id]
@@ -355,15 +383,15 @@ def check_required_jobs(path, source, jobs, findings):
         return
     if "if" in job and not _is_always(job.get("if")):
         findings.append((path, source.find(aggregate, r"^\s*if:"), "WP-16",
-                         "the aggregate quality-gate has an if: other than always(); it would be skipped when a needed job fails"))
+                         f"the aggregate {name} has an if: other than always(); it would be skipped when a needed job fails"))
     if others and "if" not in job:
         findings.append((path, source.job_line(aggregate), "WP-16",
-                         "the aggregate quality-gate has no if: always(); it would be skipped when a needed job fails"))
+                         f"the aggregate {name} has no if: always(); it would be skipped when a needed job fails"))
     needed = _needs(job)
     for job_id in others:
         if job_id not in needed:
             findings.append((path, source.find(aggregate, r"^\s*needs:"), "WP-16",
-                             f"{_job_text(job_id)} of ci.yml is not in the needs of the aggregate quality-gate"))
+                             f"{_job_text(job_id)} of {path.rsplit('/', 1)[-1]} is not in the needs of the aggregate {name}"))
 
 
 def scan_file(path, data, source, labels, defs, findings):
@@ -390,7 +418,7 @@ def scan_file(path, data, source, labels, defs, findings):
                 findings.append((path, source.job_line(job_id), "WP-11", "the job has no timeout-minutes"))
         check_steps(path, source, job_id, steps_of(job), findings)
         check_images(path, source, job_id, job, findings)
-        check_runs_on(path, source, job_id, job, labels, findings)
+        check_runs_on(path, source, job_id, job, labels, findings, jobs)
         required_name_findings(path, source, job_id, job, defs, findings)
     check_required_jobs(path, source, jobs, findings)
 

@@ -1,5 +1,3 @@
 # Allowed forms
 
-Documentation ranges: 192.0.2.10, 198.51.100.7, 203.0.113.5.
-Open route: 0.0.0.0/0
-Noreply form: 12345+bot@users.noreply.github.com
+Nothing identifier-shaped is committed here: the allowed address and email forms are built at run time by tests/quality-gate/run.sh.
