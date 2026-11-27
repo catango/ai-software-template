@@ -51,8 +51,8 @@ and its endpoint list and was not copied; only the idea of a base-commit policy 
 
 - **Inactive** for an explicit empty `operator_paths` (the check exits 0 without judging a file). **Fails closed** when the configuration
   of the base commit is missing, unreadable, or lacks `operator_paths`, and when the base commit cannot be resolved.
-- **Policy from the base.** `quality-gate.sh --base` sets `GATE_BASE_REF`, and so will the base-run step of `pr-contract.yml` once the
-  follow-up adds the check (point 7); the check reads `config/project.yaml` from that commit with the strict reader of
+- **Policy from the base.** `quality-gate.sh --base` sets `GATE_BASE_REF`, and so does the base-run step of `pr-contract.yml` (the check
+  was added to it in the TC amendments PR, point 7); the check reads `config/project.yaml` from that commit with the strict reader of
   `pr_contract.config` (the same reader PC-8 uses) and never from the head. `scripts/pr_contract/` must sit beside the checks.
 - **Python rules** (the syntax tree, nothing is run): no `shell=True`, `executable=`, `os.system`, `os.popen`, `os.exec*`, `os.spawn*`, `pty`, `eval`,
   `exec`, or dynamic import; a subprocess needs a literal argument list whose program is a bare name listed in `operator_commands`;
