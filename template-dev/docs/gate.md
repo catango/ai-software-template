@@ -34,6 +34,10 @@ catalogue lists them as `planned`.
 - `workflow-policy`: the aggregate rule of WP-16 also applies to `template-ci` in `template-ci.yml` (it was written for
   `quality-gate` only, and `template-ci.yml` has an aggregate with `if: always()` as ADR-009 decision 1 says).
 - `workflow-policy`: WP-13 accepts one computed matrix (point 1 below).
+- `quality-gate.sh`: a check sees every tracked file except the inputs of tests (`tests/*/fixtures/`), unless its header says
+  `# scope: all`; `public-repo-hygiene` does, so a token in any fixture is still found. An unknown scope fails the gate.
+- `public-repo-hygiene`: an email is allowed only in the GitHub noreply form or with the local part exactly `noreply` or
+  `no-reply`; an IPv6 pattern was added (eight groups, or a compressed form; the documentation prefix is allowed).
 - `actionlint`: `-oneline` output instead of a Go template (the generated-tree scan treats `{{...}}` as an unfilled placeholder).
 - `public-repo-hygiene`: the finding says "cloud resource identifier".
 - `toolchain`: validates `toolchain/ci-manifest.toml`; it needs no configuration file.
@@ -74,7 +78,13 @@ catalogue lists them as `planned`.
 5. **`config/project.yaml` of the template** holds only `architectures` for now. The later rows add the identity keys when
    `pr-contract` needs them.
 6. **An architecture not declared in the CI manifest** (a configuration with another name) fails the plan job with a clear
-   message. A repository that needs one adds artifacts for it to the CI manifest as an override.
-7. **`template-ci.yml` is in this PR** although the plan lists `ci.yml` only: without it the `manifest` and `leak` tests of row 1,
+   message. A repository that needs one adds artifacts for it to the CI manifest as an override. The fixture configurations of
+   `template-dev/` use declared names, and a test plans the CI matrix of a tree generated from each.
+7. **Policy from the base commit.** On a pull request the plan reads `config/project.yaml` from the base commit, and the gate
+   gets `GATE_BASE_REF` set to it (the policy inputs of `workflow-policy`), so a change cannot blank its own runner or widen
+   its own policy. Where the base has no configuration yet (the first one) and on a push, the checkout is read. A change to the
+   architectures therefore takes effect in the CI of the next pull request. The planner refuses a self-hosted label in any case
+   and, when `runner_labels` is set, a label outside it.
+8. **`template-ci.yml` is in this PR** although the plan lists `ci.yml` only: without it the `manifest` and `leak` tests of row 1,
    the engine tests, and the CI tests would never run in CI, and T-14 asks for them. It has no `generate`, `sync`, or `skills`
    job yet; those arrive with their rows. Its aggregate `template-ci` follows the same rules as `quality-gate`.
