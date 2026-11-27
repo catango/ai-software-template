@@ -5,6 +5,8 @@ These tests cover what only the template can: how it carries the seeded instruct
 the checks expect, and that a generated tree passes the checks with both configurations.
 """
 import hashlib
+import importlib.machinery
+import importlib.util
 import json
 import os
 import re
@@ -116,6 +118,24 @@ class InitPullRequestTC2(helpers.TempDirTestCase):
         found, files = self.init_pr_violations("second")
         self.assertEqual(found, [])
         self.assertIn(".claude/settings.json", [f.path for f in files])
+
+    def test_the_reader_of_the_deny_list_agrees_with_the_one_in_initialize_project(self):
+        # whatever lines `merge_platform_deny` appends to the settings file, TC-2 must find listed in the same text
+        loader = importlib.machinery.SourceFileLoader("initialize_project_under_test", str(ROOT / "scripts" / "initialize-project"))
+        module = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
+        loader.exec_module(module)
+        exported = helpers.export_template(self.make_dir() / "base")
+        head = self.make_dir() / "head"
+        (head / ".claude").mkdir(parents=True)
+        for text in ("Bash(a *)\nBash(b *)\n", "Bash(a *)\x0bBash(b *)", "# c\x0cBash(a *)\x1cBash(b *)\x85# d\u2028Bash(c *)\u2029",
+                     "Bash(a *)\r\n  Bash(b *)  \r"):
+            with self.subTest(text=ascii(text)):
+                merged = module.merge_platform_deny(exported, text.encode())
+                (head / ".claude" / "settings.json").write_bytes(merged)
+                (head / ".claude" / "deny.platform.txt").write_text(text, encoding="utf-8", newline="")
+                files = [_Change(".claude/settings.json", "modified")]
+                found = [v.message for v in template_rules.check_init(_Pr(), files, _Client(exported, head))]
+                self.assertEqual(found, [])
 
     def test_the_settings_change_of_the_second_configuration_is_only_appended_entries(self):
         exported = helpers.export_template(self.make_dir() / "base")

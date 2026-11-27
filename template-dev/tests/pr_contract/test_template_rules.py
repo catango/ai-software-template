@@ -194,6 +194,22 @@ class TC1SeededAdditions(unittest.TestCase):
                 found, _ = sync(self.NEW, section=section)
                 self.assertEqual(ids(found, "TC-1"), [UNLISTED + "docs/NEW.md"])
 
+    def test_a_path_next_to_a_letter_or_digit_of_any_script_is_not_a_listing(self):
+        for section in ("\u00e9docs/NEW.md", "docs/NEW.md\u00e9", "\u00f1docs/NEW.md", "\u6587docs/NEW.md", "docs/NEW.md\u6587",
+                        "docs/NEW.md\u0663", "\u0663docs/NEW.md", "docs/NEW.md.\u00e9", "docs/NEW.md\u00e9\u00e9", "\u03b1docs/NEW.md",
+                        "docs/NEW.md\u0301", "docs/NEW.m\u0301d", "x\u0301docs/NEW.md", "docs/NEW.md\u20dd"):
+            with self.subTest(section=ascii(section)):
+                found, _ = sync(self.NEW, section=section)
+                self.assertEqual(ids(found, "TC-1"), [UNLISTED + "docs/NEW.md"])
+
+    def test_a_path_next_to_punctuation_or_a_space_of_any_script_is_a_listing(self):
+        for section in ("docs/NEW.md\u3002", "docs/NEW.md\u00a0(seeded)", "\u300cdocs/NEW.md\u300d", "docs/NEW.md\u2026",
+                        "\u2013 docs/NEW.md \u2013", "seeded\u2014docs/NEW.md\u2014new", "\u00abdocs/NEW.md\u00bb", "docs/NEW.md\uff0c",
+                        "\u3000docs/NEW.md", "\u2022 docs/NEW.md", "docs/NEW.md\u00e9 docs/NEW.md"):
+            with self.subTest(section=ascii(section)):
+                found, _ = sync(self.NEW, section=section)
+                self.assertEqual(found, [])
+
     def test_text_in_a_comment_or_another_section_is_not_a_listing(self):
         found, _ = sync(self.NEW, section="<!-- docs/NEW.md -->\nnothing else")
         self.assertEqual(ids(found, "TC-1"), [UNLISTED + "docs/NEW.md"])
@@ -213,6 +229,19 @@ class TC1SeededAdditions(unittest.TestCase):
     def test_an_added_seeded_path_must_be_seeded_in_the_head_manifest(self):
         found, _ = sync(self.NEW, section="- docs/NEW.md", head={".template/manifest.toml": MANIFEST})
         self.assertEqual(ids(found, "TC-1"), ["added path is neither owned nor seeded in the head manifest: docs/NEW.md"])
+
+    def test_an_added_path_with_more_than_one_class_in_the_head_manifest_is_named_as_such(self):
+        for classes in (('"docs/BOTH.md", ', '"docs/BOTH.md", ', ""), ('"docs/BOTH.md", ', "", '"docs/BOTH.md", '),
+                        ("", '"docs/BOTH.md", ', '"docs/BOTH.md", '), ('"docs/BOTH.md", ', '"docs/BOTH.md", ', '"docs/BOTH.md", ')):
+            with self.subTest(classes=classes):
+                head = HEAD_MANIFEST.replace("owned = [", f"owned = [{classes[0]}", 1).replace("seeded = [", f"seeded = [{classes[1]}", 1)
+                head = head.replace("template-only = [", f"template-only = [{classes[2]}", 1)
+                found, _ = sync([fc("docs/BOTH.md", "added"), fc(STATE)], section="- docs/BOTH.md", head={".template/manifest.toml": head})
+                self.assertEqual(ids(found, "TC-1"), ["added path has more than one class in the head manifest: docs/BOTH.md"])
+
+    def test_an_added_path_with_no_class_keeps_its_message(self):
+        found, _ = sync([fc("docs/NOCLASS.md", "added"), fc(STATE)], section="- docs/NOCLASS.md")
+        self.assertEqual(ids(found, "TC-1"), ["added path is neither owned nor seeded in the head manifest: docs/NOCLASS.md"])
 
     def test_an_added_seeded_path_must_be_absent_from_the_base_commit(self):
         found, _ = sync(self.NEW, section="- docs/NEW.md", base={"docs/NEW.md": "already here"})
@@ -393,6 +422,19 @@ class TC2Settings(unittest.TestCase):
         found, _ = init_settings(settings(deny=CORE + self.APPENDED), listed=listed)
         self.assertEqual(found, [])
         found, _ = init_settings(settings(deny=CORE + ["Bash(oci *)"]), listed="# Bash(oci *)\n")
+        self.assertEqual(ids(found, "TC-2"), [NOT_LISTED + "Bash(oci *)"])
+
+    def test_the_list_file_is_split_into_lines_as_initialize_project_splits_it(self):
+        # `merge_platform_deny` uses str.splitlines(), which also breaks at these characters; each part is an entry it appends
+        for separator in ("\x0b", "\x0c", "\x1c", "\x1d", "\x1e", "\x85", "\u2028", "\u2029", "\r", "\r\n"):
+            with self.subTest(separator=ascii(separator)):
+                found, _ = init_settings(settings(deny=CORE + self.APPENDED), listed=separator.join(self.APPENDED))
+                self.assertEqual(found, [])
+
+    def test_a_comment_ends_at_the_same_line_break_as_in_initialize_project(self):
+        found, _ = init_settings(settings(deny=CORE + ["Bash(oci *)"]), listed="# a comment\x0bBash(oci *)\n")
+        self.assertEqual(found, [])
+        found, _ = init_settings(settings(deny=CORE + ["Bash(oci *)"]), listed="# a comment \u2028 Bash(oci *)\n")
         self.assertEqual(ids(found, "TC-2"), [NOT_LISTED + "Bash(oci *)"])
 
     def test_an_appended_entry_that_is_not_listed_fails_and_names_the_entry(self):
