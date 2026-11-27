@@ -289,6 +289,93 @@ class DocsRoots(unittest.TestCase):
         self.assertEqual([c for c in client.calls if c[0] == "base_config"], [("base_config", helpers.BASE_SHA)])
 
 
+class NearMissKeys(unittest.TestCase):
+    """A misspelled policy key in the base configuration fails closed and the violation names the key."""
+
+    def run_with(self, error, kind="change", files=None):
+        pr = make_pr(kind)
+        client = MemClient(config=error, files={pr.number: files or [fc("docs/a.md")]})
+        return rules.evaluate(pr, client, helpers.TEMPLATES)
+
+    def test_every_rule_that_reads_the_configuration_reports_the_key(self):
+        from pr_contract.errors import NearMissKey
+        found = self.run_with(NearMissKey("docs_root"))
+        by_rule = {v.rule: v.message for v in found}
+        self.assertEqual(sorted(by_rule), ["PC-5", "PC-8", "PC-9"])
+        for message in by_rule.values():
+            self.assertIn("docs_root", message)
+            self.assertIn("misspelling", message)
+        self.assertTrue(by_rule["PC-5"].startswith("docs_roots missing or invalid in the base configuration"))
+
+    def test_the_key_is_sanitized_and_a_plain_config_error_has_no_hint(self):
+        from pr_contract.errors import NearMissKey
+        found = self.run_with(NearMissKey("docs_root\x1b[31m::error::" + "x" * 100))
+        for v in found:
+            self.assertNotIn("\x1b", v.message)
+            self.assertNotIn("::", v.message)
+            self.assertLess(len(v.message), 200)
+        found = self.run_with(ConfigError("x"))
+        self.assertTrue(all("misspelling" not in v.message for v in found))
+
+    def test_a_design_repository_reference_reports_it_too(self):
+        from pr_contract.errors import NearMissKey
+        pr = make_pr("implementation", head_ref="impl/CR-39-x", body=body("implementation", top="Implements: example-owner/design-records#39\nDesign: example-owner/design-records#40\n"))
+        client = MemClient(config=NearMissKey("design_repo"), files={pr.number: [fc("scripts/x")]})
+        found = [v for v in rules.evaluate(pr, client, helpers.TEMPLATES) if v.rule == "PC-3"]
+        self.assertEqual(len(found), 1)
+        self.assertIn("design_repo", found[0].message)
+
+
+class UneditedTemplateSections(unittest.TestCase):
+    """A section whose text is exactly the template's own (the unchecked default items) and with no box ticked counts as not filled
+    in. The comparison is against the template of the BASE checkout, the one the script runs from."""
+
+    def pr_with_checkpoint(self, kind, checkpoint):
+        return make_pr(kind, body=body(kind, top=helpers.IMPL_TOP if kind == "implementation" else "", sections={"Checkpoint": checkpoint}))
+
+    def template_checkpoint(self, kind):
+        from pr_contract import markdown
+        return markdown.parse((helpers.TEMPLATES / f"{kind}.md").read_text()).sections["Checkpoint"]
+
+    def test_the_default_items_left_untouched_fail_for_every_template(self):
+        for kind in helpers.TYPES:
+            with self.subTest(kind=kind):
+                files = [fc("docs/x.md")] if kind == "design" else [fc("scripts/x")]
+                found = [v for v in evaluate(self.pr_with_checkpoint(kind, self.template_checkpoint(kind)), files=files) if v.rule == "PC-1"]
+                self.assertEqual([v.message for v in found], ["section is the unedited template text: Checkpoint"])
+
+    def test_one_ticked_box_an_edited_item_or_an_added_item_is_a_filled_section(self):
+        default = self.template_checkpoint("change").strip("\n")
+        first = default.split("\n")[0]
+        for name, text in (("ticked", default.replace("- [ ]", "- [x]", 1)), ("upper-case tick", default.replace("- [ ]", "- [X]", 1)),
+                           ("edited", default.replace(first, first + " (done by hand)")), ("added", default + "\n- [ ] One more item"),
+                           ("removed", "\n".join(default.split("\n")[1:])), ("reordered", "\n".join(reversed(default.split("\n"))))):
+            with self.subTest(case=name):
+                found = [v for v in evaluate(self.pr_with_checkpoint("change", text), files=[fc("scripts/x")]) if v.rule == "PC-1"]
+                self.assertEqual(found, [], name)
+
+    def test_blank_lines_and_trailing_spaces_do_not_make_it_edited(self):
+        default = self.template_checkpoint("change")
+        spaced = "\n\n" + default.replace("\n", "  \n\n") + "\n"
+        found = [v for v in evaluate(self.pr_with_checkpoint("change", spaced), files=[fc("scripts/x")]) if v.rule == "PC-1"]
+        self.assertEqual(len(found), 1)
+
+    def test_the_template_of_the_base_checkout_is_the_reference(self):
+        import tempfile, pathlib, shutil
+        with tempfile.TemporaryDirectory() as tmp:
+            other = pathlib.Path(tmp)
+            shutil.copy(helpers.TEMPLATES / "change.md", other / "change.md")
+            text = (other / "change.md").read_text().replace("- [ ] Change implemented", "- [ ] The site's own first item")
+            (other / "change.md").write_text(text)
+            pr = self.pr_with_checkpoint("change", self.template_checkpoint("change"))  # the shipped default is no longer the template's
+            client = MemClient(files={pr.number: [fc("scripts/x")]})
+            self.assertEqual([v for v in rules.evaluate(pr, client, other) if v.rule == "PC-1"], [])
+
+    def test_other_sections_are_unaffected_and_comment_only_ones_are_still_empty(self):
+        self.assertIn("PC-1", ids(evaluate(make_pr(body=body("implementation", top=helpers.IMPL_TOP, comment_only=("Summary",))))))
+        self.assertEqual(evaluate(make_pr(), files=[fc("scripts/x")]), [])
+
+
 class PC6(unittest.TestCase):
     JUSTIFICATION = "Workflow change justification"
 

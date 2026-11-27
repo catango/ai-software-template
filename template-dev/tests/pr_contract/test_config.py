@@ -114,7 +114,7 @@ class Reader(unittest.TestCase):
         self.assertEqual(parse(text), {"workflow": {"operator_paths": [], "design_repos": []}})
 
     def test_the_other_key_named_like_a_read_key_is_not_confused(self):
-        parsed = parse("workflow_x: 1\nworkflow:\n  design_repos_all: [1]\n  design_repos: []\n  operator_paths: []\n")
+        parsed = parse("workflow_extra: 1\nworkflow:\n  design_repos_all: [1]\n  design_repos: []\n  operator_paths: []\n")
         self.assertEqual(parsed["workflow"], {"design_repos": [], "operator_paths": []})
 
     def test_design_repos_entries_are_validated(self):
@@ -136,6 +136,52 @@ class Reader(unittest.TestCase):
         for name in ("", "-a", "A", "a b", "x" * 21, "a.b"):
             with self.subTest(name=name), self.assertRaises(ConfigError):
                 config.architectures({"architectures": [{"name": name}]})
+
+
+class Misspellings(unittest.TestCase):
+    """A key that looks like one of the policy keys but is not one is an error: it must never be read as an absent key (an absent
+    `docs_roots` is the default, so a typo would silently drop protection). Keys that are far from every policy key are skipped."""
+
+    def test_a_typo_of_each_workflow_key_is_an_error_that_names_the_key(self):
+        from pr_contract.errors import NearMissKey
+        typos = {"docs_roots": ("docs_root", "doc_roots", "docs-roots", "Docs_roots", "dosc_roots", "docsroots", "docs_rootss"),
+                 "design_repos": ("design_repo", "designrepos", "desing_repos", "design-repos", "Design_Repos"),
+                 "operator_paths": ("operator_path", "operators_paths", "operater_paths", "operator-paths", "operatorpaths")}
+        for known, names in typos.items():
+            for name in names:
+                with self.subTest(known=known, typo=name):
+                    with self.assertRaises(NearMissKey) as caught:
+                        parse(f"workflow:\n  {name}: []\n  design_repos: []\n")
+                    self.assertEqual(caught.exception.key, name)
+                    self.assertIsInstance(caught.exception, ConfigError)
+
+    def test_a_typo_of_a_top_level_key_is_an_error(self):
+        for name in ("workflows", "workflo", "architecture", "architecturs", "Architectures", "work-flow"):
+            with self.subTest(typo=name), self.assertRaises(ConfigError):
+                parse(f"{name}:\n  docs_roots: []\n")
+
+    def test_the_typo_is_found_wherever_it_stands_and_whatever_it_holds(self):
+        for text in ("workflow:\n  design_repos: []\n  operator_paths: []\n  docs_root:\n    - a/\n",
+                     "workflow:\n  docs_root: {a: [1]}\n", "workflow:\n  docs_root: |\n    x\n",
+                     "workflow:\n  # c\n  docs_roots_: []\n"):
+            with self.subTest(text=text), self.assertRaises(ConfigError):
+                parse(text)
+
+    def test_keys_that_are_far_from_the_policy_keys_are_skipped(self):
+        for name in ("merge_method", "change_classes", "design_repos_all", "release_tags", "docs", "paths", "roots", "owner"):
+            parsed = parse(f"workflow:\n  {name}: [1, 2]\n  design_repos: []\n  operator_paths: []\n")
+            self.assertEqual(parsed["workflow"], {"design_repos": [], "operator_paths": []}, name)
+        for name in ("github", "project", "template", "schema_version", "workflow_extra", "post_init"):
+            self.assertEqual(parse(f"{name}: 1\n"), {}, name)
+
+    def test_the_exact_keys_are_never_near_misses(self):
+        parsed = parse("workflow:\n  design_repos: []\n  operator_paths: []\n  docs_roots:\n    - docs/\narchitectures: []\n")
+        self.assertEqual(sorted(parsed), ["architectures", "workflow"])
+
+    def test_a_misspelled_key_inside_another_keys_block_is_not_a_key(self):
+        # indented text under a skipped key is that key's value, not a child of workflow
+        parsed = parse("workflow:\n  other:\n    docs_root: 1\n  design_repos: []\n  operator_paths: []\n")
+        self.assertEqual(parsed["workflow"], {"design_repos": [], "operator_paths": []})
 
 
 class DocsRoots(unittest.TestCase):

@@ -11,7 +11,7 @@ from unittest import mock
 import helpers
 from pr_contract import api, cli
 from pr_contract.api import MAX_FILES, FixtureClient, GhClient
-from pr_contract.errors import ApiError, InputError, LimitExceeded, NotFound
+from pr_contract.errors import ApiError, InputError, LimitExceeded, NotFound, NotReadable, ReadError
 
 TOKEN = "tok-SECRET-0123456789"
 PR_JSON = {"number": 5, "title": "t", "body": None, "state": "open", "draft": True, "merged": False,
@@ -110,10 +110,18 @@ class Requests(unittest.TestCase):
         for status in (401, 403):
             c, _ = client({"*": fail(status)})
             with self.subTest(status=status):
-                with self.assertRaises(NotFound):
+                with self.assertRaises(NotReadable):
                     c.file_text(sha, "x/y.toml")
-                with self.assertRaises(NotFound):
+                with self.assertRaises(NotReadable):
                     c.base_config(sha)
+                # a handler that treats "not found" as "absent" must never see a refused read
+                try:
+                    try:
+                        c.file_text(sha, "x/y.toml")
+                    except NotFound:
+                        self.fail("a refused read was caught as not found")
+                except NotReadable:
+                    pass
         c, _ = client({"*": fail(404)})
         self.assertIsNone(c.file_text(sha, "x/y.toml"))
 
@@ -198,10 +206,17 @@ class Failures(unittest.TestCase):
             self.call(fail(404))
         self.assertNotIsInstance(caught.exception, NotReadable)
 
-    def test_not_found_and_not_readable_are_not_found(self):
-        for status in (404, 401, 403):
-            with self.subTest(status=status), self.assertRaises(NotFound):
+    def test_the_two_read_failures_are_siblings_under_one_base(self):
+        self.assertTrue(issubclass(NotFound, ReadError) and issubclass(NotReadable, ReadError))
+        self.assertFalse(issubclass(NotReadable, NotFound))
+        self.assertFalse(issubclass(NotFound, NotReadable))
+        self.assertFalse(issubclass(ReadError, ApiError))
+
+    def test_a_404_a_401_and_a_403_are_each_a_read_failure_of_their_own_kind(self):
+        for status, kind in ((404, NotFound), (401, NotReadable), (403, NotReadable)):
+            with self.subTest(status=status), self.assertRaises(ReadError) as caught:
                 self.call(fail(status))
+            self.assertIs(type(caught.exception), kind)
 
     def test_rate_limits(self):
         self.assert_api_error(fail(403, "API rate limit exceeded"), "rate limit")
