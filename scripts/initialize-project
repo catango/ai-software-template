@@ -9,9 +9,11 @@ Nothing is inherited from the template's own files. The script
   1. refuses a tree that already has .template/state.toml, or a file without a class;
   2. validates the configuration and the preset files it names;
   3. removes every `template-only` path;
-  4. writes the seeded files: README.md, docs/README.md, config/project.yaml,
-     docs/PLATFORM.md, .claude/deny.platform.txt, and .template/state.toml; the entries of the
-     platform deny list are also added once to permissions.deny in .claude/settings.json;
+  4. writes the seeded files: README.md, config/project.yaml, docs/PLATFORM.md,
+     .claude/deny.platform.txt, and .template/state.toml; the entries of the platform deny list
+     are also added once to permissions.deny in .claude/settings.json. The seeded docs/README.md
+     (the locator for the records) and docs/PROJECT.md are carried by the template and kept as
+     they are: the template's file is their only source;
   5. prints the configured post-init actions and the rulesets to apply by hand.
 
 It works on local files only. It creates no label, ruleset, repository, collaborator, or
@@ -42,13 +44,6 @@ NEUTRAL_PLATFORM_DOC = (
     "This project has no platform-specific rules.\n\n"
     "A platform preset replaces this file with where the project runs, the constraints of its\n"
     "platform, and the platform-specific Never rules.\n"
-)
-DOCS_INDEX = (
-    "# Documentation\n\n"
-    "| Path | Content |\n|---|---|\n"
-    "| `PLATFORM.md` | Where the project runs and the constraints of its platform |\n"
-    "| `cr/` | Change requests, one directory per issue number of this repository |\n"
-    "| `adr/` | Architecture decision records, numbered in this repository |\n"
 )
 # Identifier of the GitHub Actions application as the source of a required status check.
 ACTIONS_APP_ID = 15368
@@ -263,6 +258,9 @@ def main(argv=None):
             print(f"initialize-project: symbolic link to a directory is not supported: {path}",
                   file=sys.stderr)
         return fail("remove the link or make it template-only; nothing was changed")
+    docs_index = root / "docs" / "README.md"
+    if docs_index.is_symlink() or not docs_index.is_file():
+        return fail("docs/README.md (the seeded locator for the records) is missing or is not a plain file; nothing was changed")
     platform_doc = (presets["platform_doc"].read_bytes() if presets["platform_doc"]
                     else NEUTRAL_PLATFORM_DOC.encode())
     deny_platform = presets["deny_platform"].read_bytes() if presets["deny_platform"] else b""
@@ -272,7 +270,6 @@ def main(argv=None):
         return fail(f"{exc}; nothing was changed")
     seeded = {
         "README.md": readme(config["project"]).encode(),
-        "docs/README.md": DOCS_INDEX.encode(),
         "config/project.yaml": template_config.project_yaml(config).encode(),
         "docs/PLATFORM.md": platform_doc,
         ".claude/deny.platform.txt": deny_platform,

@@ -1,0 +1,127 @@
+#!/usr/bin/env python3
+"""Create the five-file skeleton of a change request.
+
+    scripts/new-cr [--dry-run] [--root DIR/] <n> <slug>
+
+`<n>` is the issue number of THIS repository (a positive integer, no leading zero); `<slug>` names the branches
+(`design/CR-<n>-<slug>`, `impl/CR-<n>-<slug>`): lowercase letters, digits, and single hyphens, at most 40 characters.
+The files are copied from `docs/cr/_template/` into `<root>cr/CR-<n>/`, with `<n>` and `<slug>` filled in. The root is the
+first entry of `workflow.docs_roots` in `config/project.yaml`; `--root` picks another entry of that list (the template repository
+keeps its own records under `template-dev/docs/`). Nothing is overwritten: if the directory exists, or any of its files does,
+the script stops before it writes anything. --dry-run prints what would be written and writes nothing.
+
+Exit status: 0 done, 1 refused, 2 usage error.
+"""
+
+import argparse
+import os
+import re
+import sys
+from pathlib import Path
+
+sys.dont_write_bytecode = True
+
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+
+from pr_contract import config as policy  # noqa: E402
+from pr_contract.errors import ConfigError  # noqa: E402
+
+FILES = ("README.md", "impact-analysis.md", "design.md", "acceptance-criteria.md", "implementation-plan.md")
+NUMBER = re.compile(r"[1-9][0-9]{0,8}")
+SLUG = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
+MAX_SLUG = 40
+MAX_BYTES = 65536
+
+
+def refuse(message, code=1):
+    print(f"new-cr: {message}", file=sys.stderr)
+    return code
+
+
+def real_directory(path):
+    """True for a directory that is not a symbolic link (nothing is written through a link)."""
+    return path.is_dir() and not path.is_symlink()
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(prog="new-cr", description="Create the five-file skeleton of a change request.")
+    parser.add_argument("number", help="issue number of this repository")
+    parser.add_argument("slug", help="branch slug: lowercase letters, digits, single hyphens")
+    parser.add_argument("--dry-run", action="store_true", help="print what would be written, write nothing")
+    parser.add_argument("--root", help="record root from workflow.docs_roots (default: the first)")
+    try:
+        args = parser.parse_args(argv)
+    except SystemExit as exit_:
+        return 2 if exit_.code else 0
+
+    if not NUMBER.fullmatch(args.number):
+        return refuse("<n> must be the issue number: digits, no leading zero", 2)
+    if len(args.slug) > MAX_SLUG or not SLUG.fullmatch(args.slug):
+        return refuse(f"<slug> must be lowercase letters, digits, and single hyphens, at most {MAX_SLUG} characters", 2)
+
+    root = HERE.parent
+    try:
+        text = (root / "config" / "project.yaml").read_text(encoding="utf-8")
+        if len(text.encode()) > policy.MAX_TEXT:
+            raise ConfigError("configuration is too large")
+        roots = policy.docs_roots(policy.parse_yaml(text))
+    except (OSError, UnicodeDecodeError, ConfigError) as error:
+        return refuse(f"docs_roots cannot be read from config/project.yaml ({error})")
+    record_root = args.root if args.root is not None else roots[0]
+    if record_root not in roots:
+        return refuse(f"--root must be one of workflow.docs_roots: {', '.join(roots)}", 2)
+
+    skeleton = root / "docs" / "cr" / "_template"
+    if not real_directory(skeleton):
+        return refuse("docs/cr/_template/ is missing")
+    bodies = {}
+    for name in FILES:
+        source = skeleton / name
+        if source.is_symlink() or not source.is_file() or source.stat().st_size > MAX_BYTES:
+            return refuse(f"docs/cr/_template/{name} is missing or not a plain file")
+        try:
+            bodies[name] = source.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            return refuse(f"docs/cr/_template/{name} cannot be read as text")
+
+    # Containment before anything is created: every existing directory on the way is a real directory inside the repository,
+    # and the target does not exist in any form.
+    relative = f"{record_root}cr/CR-{args.number}"
+    current = root
+    for part in relative.split("/"):
+        current = current / part
+        if current.is_symlink():
+            return refuse(f"{relative} goes through a symbolic link; nothing was written")
+        if not current.exists():
+            break
+        if current != root / relative and not current.is_dir():
+            return refuse(f"{os.path.relpath(current, root)} is not a directory; nothing was written")
+    target = root / relative
+    if target.exists() or target.is_symlink():
+        return refuse(f"{relative} already exists; nothing was overwritten")
+    if os.path.commonpath([root.resolve(), (root / record_root).resolve()]) != str(root.resolve()):
+        return refuse("the record root leaves the repository; nothing was written")
+
+    rendered = {
+        name: body.replace("<n>", args.number).replace("<slug>", args.slug) for name, body in bodies.items()
+    }
+    if args.dry_run:
+        print("Dry run: nothing is written.")
+    else:
+        try:
+            target.mkdir(parents=True, exist_ok=False)
+            for name, body in rendered.items():
+                with open(target / name, "x", encoding="utf-8") as handle:
+                    handle.write(body)
+        except OSError as error:
+            return refuse(f"write failed: {error}")
+    for name in FILES:
+        print(f"  {'would write' if args.dry_run else 'wrote'} {relative}/{name}")
+    print(f"new-cr: {'would create' if args.dry_run else 'created'} {relative}/ with {len(FILES)} files "
+          f"(branches design/CR-{args.number}-{args.slug}, impl/CR-{args.number}-{args.slug})")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

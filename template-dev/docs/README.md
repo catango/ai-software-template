@@ -20,5 +20,7 @@ repository carries it, and the payload keeps no change request or ADR instance u
 | [Manifest and configuration schema](manifest-and-config.md) | this directory | How the skeleton (plan row 1) fixes what the design left open |
 | [Quality gate, install engine, and CI](gate.md) | this directory | What plan row 2 built, how the seeded code changed, and the points for the approver |
 | [pr-contract](pr-contract.md) | this directory | What plan row 3 built (rules PC-1 to PC-9, TC-1, TC-2), how the seeded code changed, and the points for the approver |
+| [instructions](instructions.md) | this directory | What plan row 4 built (`CLAUDE.md`, rules, guardrails, operator contract) |
+| [CR and ADR templates](cr-templates.md) | this directory | What plan row 5 built (`new-cr`, `cr-layout`, the skeletons, the locator) and the points for the approver |
 
 No change request or ADR of this repository exists yet.

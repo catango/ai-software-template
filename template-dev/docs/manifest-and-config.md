@@ -56,8 +56,10 @@ from fragments at run time, so no identifier-shaped value is committed.
   `template-only` paths and the directories they leave empty; write the seeded files; write
   `.template/state.toml` last (version, source, SHA-256 of every owned file, empty
   `[overrides]`).
-- A seeded file that the copy already has (`README.md`, `docs/README.md`, `config/project.yaml`,
-  `docs/PLATFORM.md`, `.claude/deny.platform.txt`) is overwritten from the configuration.
+- A seeded file that the copy already has (`README.md`, `config/project.yaml`, `docs/PLATFORM.md`,
+  `.claude/deny.platform.txt`) is overwritten from the configuration. `docs/README.md` and `docs/PROJECT.md` are seeded files
+  that the template carries and `initialize-project` keeps as they are (plan row 5 moved the locator out of the script: the
+  tracked file is the only source; init refuses a tree where it is missing).
   Without preset files, `docs/PLATFORM.md` gets a neutral text and `deny.platform.txt` is empty.
 - The walk skips `.git` and `__pycache__`, and the script disables bytecode writing, so a
   direct run leaves no bytecode in the repository. A symbolic link to a directory counts as a
