@@ -133,6 +133,95 @@ class Workflow(unittest.TestCase):
         self.assertNotRegex(self.text, r"(?i)amd64|arm64|aarch64|x86[_-]64|ubuntu-\d|claude|anthropic")
 
 
+class BaseCommit(unittest.TestCase):
+    """The plan and the gate read the repository's policy from the base commit of a pull request, never from its head.
+
+    The steps' own commands run in a throw-away repository: a stand-in `yq` that passes JSON through, a stand-in gate that
+    prints the base reference it was given, and the real planner and CI manifest.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.repo = pathlib.Path(self.tmp.name) / "repo"
+        (self.repo / "scripts" / "lib").mkdir(parents=True)
+        (self.repo / "toolchain").mkdir()
+        (self.repo / "config").mkdir()
+        (self.repo / "scripts" / "lib" / "ci_matrix.py").write_bytes(PLANNER.read_bytes())
+        (self.repo / "toolchain" / "ci-manifest.toml").write_bytes(MANIFEST.read_bytes())
+        gate = self.repo / "scripts" / "quality-gate.sh"
+        gate.write_text('#!/usr/bin/env bash\necho "base=${GATE_BASE_REF:-unset}"\n')
+        gate.chmod(0o755)
+        self.bin = pathlib.Path(self.tmp.name) / "bin"
+        self.bin.mkdir()
+        yq = self.bin / "yq"
+        yq.write_text('#!/usr/bin/env bash\n# stand-in: the configuration of these tests is JSON, which is YAML\nif [[ ${!#} == - ]]; then cat; else cat "${!#}"; fi\n')
+        yq.chmod(0o755)
+        self.git("init", "-q", "-b", "main")
+
+    def git(self, *args):
+        env = {"PATH": os.environ["PATH"], "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_SYSTEM": "/dev/null", "GIT_AUTHOR_NAME": "t",
+               "GIT_AUTHOR_EMAIL": "t@example.invalid", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.invalid"}
+        return subprocess.run(["git", *args], cwd=self.repo, env=env, capture_output=True, text=True, check=True).stdout.strip()
+
+    def commit(self, config):
+        if config is None:
+            (self.repo / "config" / "project.yaml").unlink(missing_ok=True)
+        else:
+            (self.repo / "config" / "project.yaml").write_text(json.dumps(config))
+        self.git("add", "-A")
+        self.git("commit", "-q", "--allow-empty", "-m", "c")
+        return self.git("rev-parse", "HEAD")
+
+    def run_step(self, job, name, env):
+        _, script = step(jobs(CI.read_text())[job], name)
+        full = {"PATH": f"{self.bin}:{os.environ['PATH']}", "RUNNER_TEMP": self.tmp.name, "GIT_CONFIG_GLOBAL": "/dev/null", **env}
+        return subprocess.run(["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", script], cwd=self.repo, env=full,
+                              capture_output=True, text=True, check=False)
+
+    PUBLIC = {"architectures": [arch("amd64", "runner-a", "runner-a"), arch("arm64", "runner-b", "")]}
+
+    def test_both_checkouts_fetch_the_base_commit(self):
+        for job in ("plan", "gate"):
+            body = "\n".join(jobs(CI.read_text())[job])
+            self.assertIn("fetch-depth: 0", body, job)
+        text = CI.read_text()
+        self.assertEqual(text.count("BASE_SHA: ${{ github.event.pull_request.base.sha }}"), 2)
+
+    def test_the_gate_gets_the_base_reference_of_a_pull_request(self):
+        base = self.commit(self.PUBLIC)
+        head = self.commit({"architectures": [arch("amd64", "widened", "")]})
+        done = self.run_step("gate", "Quality gate", {"BASE_SHA": base})
+        self.assertEqual(done.stdout.strip(), f"base={base}", done.stderr)
+        self.assertNotEqual(base, head)
+
+    def test_the_gate_reads_the_working_tree_on_a_push_and_before_a_configuration_exists(self):
+        base = self.commit(None)
+        self.commit(self.PUBLIC)
+        self.assertEqual(self.run_step("gate", "Quality gate", {"BASE_SHA": base}).stdout.strip(), "base=unset")
+        self.assertEqual(self.run_step("gate", "Quality gate", {"BASE_SHA": ""}).stdout.strip(), "base=unset")
+
+    def plan(self, base_sha):
+        env = {"PRIVATE": "false", "BASE_SHA": base_sha, "GITHUB_OUTPUT": str(pathlib.Path(self.tmp.name) / "out")}
+        done = self.run_step("plan", "Plan the matrix", env)
+        return done.returncode, [e["run"] for e in json.loads(done.stdout)["include"]] if done.returncode == 0 else done.stderr
+
+    def test_a_head_that_blanks_a_runner_does_not_change_the_plan_of_its_own_pull_request(self):
+        base = self.commit(self.PUBLIC)
+        self.commit({"architectures": [arch("amd64", "runner-a", "runner-a"), arch("arm64", "", "")]})
+        self.assertEqual(self.plan(base), (0, ["true", "true"]))
+
+    def test_a_push_plans_from_the_working_tree(self):
+        self.commit(self.PUBLIC)
+        self.commit({"architectures": [arch("amd64", "runner-a", "runner-a"), arch("arm64", "", "")]})
+        self.assertEqual(self.plan(""), (0, ["true", "false"]))
+
+    def test_without_a_configuration_at_the_base_the_head_is_used(self):
+        base = self.commit(None)
+        self.commit(self.PUBLIC)
+        self.assertEqual(self.plan(base), (0, ["true", "true"]))
+
+
 class Planner(unittest.TestCase):
     TWO = {"architectures": [arch("amd64", "ubuntu-24.04", "ubuntu-24.04"), arch("arm64", "ubuntu-24.04-arm", "")]}
 

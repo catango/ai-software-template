@@ -24,8 +24,10 @@ jobs:
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
     steps:
+      # The full history, so that the base commit of a pull request is there.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          fetch-depth: 0
           persist-credentials: false
 
       # yq turns the configuration into JSON. It comes from the CI manifest, checksum-verified.
@@ -40,8 +42,15 @@ jobs:
         shell: bash
         env:
           PRIVATE: ${{ github.event.repository.private }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
-          yq -o=json '.' config/project.yaml | python3 -I scripts/lib/ci_matrix.py plan --manifest toolchain/ci-manifest.toml --private "$PRIVATE"
+          # On a pull request the architectures and runners come from the base commit, so a change cannot blank the runner of
+          # its own check. Where the base has no configuration yet (the first one), and on a push, the checkout is read.
+          if [[ -n $BASE_SHA ]] && git cat-file -e "$BASE_SHA:config/project.yaml" 2>/dev/null; then
+            git show "$BASE_SHA:config/project.yaml" | yq -o=json '.' -
+          else
+            yq -o=json '.' config/project.yaml
+          fi | python3 -I scripts/lib/ci_matrix.py plan --manifest toolchain/ci-manifest.toml --private "$PRIVATE"
 
   # The gate on every configured architecture. A leg for an architecture that has no runner for this repository runs on the
   # base runner and says "not run: <arch>"; the aggregate below repeats that, so one place lists what no runner covered.
@@ -58,6 +67,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Not run
@@ -79,10 +89,18 @@ jobs:
           python3 -I toolchain/install install --profile gate --arch "$ARCH" --prefix "$RUNNER_TEMP/toolchain"
           echo "$RUNNER_TEMP/toolchain/bin" >> "$GITHUB_PATH"
 
+      # The policy inputs of the checks (allowed actions, runner labels) come from the base commit of a pull request, never from the
+      # head being judged. The environment variable keeps every file in scope; --base would narrow the gate to changed files.
       - name: Quality gate
         if: matrix.run == 'true'
         shell: bash
-        run: ./scripts/quality-gate.sh --strict
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [[ -n $BASE_SHA ]] && git cat-file -e "$BASE_SHA:config/project.yaml" 2>/dev/null; then
+            export GATE_BASE_REF=$BASE_SHA
+          fi
+          ./scripts/quality-gate.sh --strict
 
   # The one required check of this workflow. It needs every other job, always runs, and fails unless each needed job
   # succeeded: a skipped or cancelled job is not a pass. A matrix job counts once (its combined result). It checks out nothing
