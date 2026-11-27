@@ -335,6 +335,54 @@ class Label(Base):
         self.assertEqual(runner.writes(), [])
 
 
+class GitHubErrors(Base):
+    """A refused or missing read of GitHub is exit 3 with fixed text, never a traceback and never the refusal code."""
+
+    CONFIG = {"type": "file", "encoding": "base64", "size": len(helpers.CONFIG), "content": base64.b64encode(helpers.CONFIG.encode()).decode()}
+    FORBIDDEN = (1, b"", b"gh: Forbidden (HTTP 403) secret-looking text")
+    MISSING = (1, b"", b"gh: Not Found (HTTP 404)")
+
+    def runner(self, **overrides):
+        answers = {
+            "contents/config/project.yaml": self.CONFIG,
+            f"repos/{REPO}/issues/40/labels": [{"name": "class:3"}],
+            f"repos/{REPO}/issues/40": helpers.issue_json(40),
+            f"repos/{REPO}/pulls?": [],
+            f"repos/{REPO}/labels/class%3A3": {"name": "class:3"},
+            f"repos/{REPO}": {"private": False, "default_branch": "main"},
+        }
+        # the runner answers with the first key found in the request, so the overrides come first
+        return helpers.FakeRunner({**overrides, **{key: value for key, value in answers.items() if key not in overrides}})
+
+    def run_with(self, runner, *argv):
+        code, out, err = helpers.run_context(self, *argv, client=GhClient(REPO, runner=runner), check_lag=False)
+        self.assertNotIn("Traceback", out + err)
+        self.assertNotIn("secret-looking", out + err)
+        return code, out, err
+
+    def test_a_refused_configuration_read(self):
+        self.assertEqual(self.run_with(self.runner(**{"contents/config/project.yaml": self.FORBIDDEN}), "40")[0], 3)
+
+    def test_a_failed_pull_request_search(self):
+        code, _, err = self.run_with(self.runner(**{f"repos/{REPO}/pulls?": self.MISSING}), "40")
+        self.assertEqual(code, 3)
+        self.assertIn("error", err)
+
+    def test_a_refused_label_lookup(self):
+        runner = self.runner(**{f"repos/{REPO}/labels/class%3A3": self.FORBIDDEN})
+        self.assertEqual(self.run_with(runner, "label", "40", "--confirmed-class", "3")[0], 3)
+        self.assertEqual(runner.writes(), [])
+
+    def test_adding_a_label_to_a_deleted_issue(self):
+        runner = self.runner(**{f"repos/{REPO}/issues/40/labels": self.MISSING})
+        self.assertEqual(self.run_with(runner, "label", "40", "--confirmed-class", "3")[0], 3)
+
+    def test_a_missing_design_pull_request_in_the_preflight_is_a_finding_not_an_error(self):
+        code, out, _ = self.run_with(self.runner(**{f"repos/{REPO}/pulls/41": self.MISSING}), "preflight", "40", "41")
+        self.assertEqual(code, 1)
+        self.assertIn("FAIL PC-3", out)
+
+
 class Programs(unittest.TestCase):
     def run_program(self, script, *argv):
         with tempfile.TemporaryDirectory() as fixture, tempfile.TemporaryDirectory() as tree:

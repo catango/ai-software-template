@@ -317,6 +317,6 @@ def main(argv, prog="cr-context", client=None, check_lag=None):
     except InputError as error:
         print(f"{prog}: error: {clean(error, 200)}", file=sys.stderr)
         return 2
-    except ApiError as error:
+    except (ApiError, NotFound, NotReadable) as error:
         print(f"{prog}: error: {clean(error, 200)}", file=sys.stderr)
         return 3
