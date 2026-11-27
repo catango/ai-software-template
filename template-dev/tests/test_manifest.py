@@ -235,6 +235,29 @@ class GenerationTests(TempDirTestCase):
                     ".claude/deny.platform.txt", ".template/state.toml"):
             self.assertTrue((tree / rel).is_file(), rel)
 
+    def test_the_docs_locator_is_the_template_file_and_only_that(self):
+        # one source: the tracked docs/README.md. init keeps it byte for byte and writes no second version of it.
+        tracked = (helpers.ROOT / "docs" / "README.md").read_bytes()
+        for name in helpers.CONFIGS:
+            with self.subTest(config=name):
+                tree, result = self.generate(name)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual((tree / "docs" / "README.md").read_bytes(), tracked)
+                text = tracked.decode()
+                self.assertNotIn("template-dev", text)
+                self.assertIn("scripts/new-cr", text)
+        init_text = (helpers.ROOT / "scripts" / "initialize-project").read_text()
+        self.assertNotIn("# Documentation", init_text)
+
+    def test_init_refuses_a_tree_without_the_docs_locator_and_writes_nothing(self):
+        tree = helpers.export_template(self.make_dir() / "tree")
+        (tree / "docs" / "README.md").unlink()
+        before = helpers.snapshot(tree)
+        result = helpers.run_init(tree, helpers.NEUTRAL)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("docs/README.md", result.stderr)
+        self.assertEqual(helpers.snapshot(tree), before)
+
     def test_project_yaml_comes_only_from_the_configuration(self):
         tree, result = self.generate("second", {"config/project.yaml": "template: leftover\n"})
         self.assertEqual(result.returncode, 0, result.stderr)

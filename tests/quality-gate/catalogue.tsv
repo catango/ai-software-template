@@ -21,6 +21,6 @@ dependabot-config	generic	planned
 codeowners	template	planned
 claude-md	template	present
 deny-list	template	present
-cr-layout	template	planned
+cr-layout	template	present
 owned-drift	template	planned
 operator-contract	template	present

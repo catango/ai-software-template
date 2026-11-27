@@ -180,6 +180,7 @@ run_check_fixtures() {
   local id name dir
   gen_hygiene_cases
   gen_claude_md_cases
+  gen_cr_layout_cases
   for dir in "$FIXTURES"/*/ "$WORK"/gen/*/; do
     [[ -d $dir ]] || continue
     id=$(basename "$dir")
@@ -306,7 +307,7 @@ test_dispatcher() {
   # --list, --only, --skip, --base
   gate "$repo" --list
   rc_is "--list exits 0" 0
-  expected="bash-hygiene shellcheck public-repo-hygiene workflow-policy forbidden-api no-claude-in-workflows links yaml markdown size-budget actionlint claude-md deny-list toolchain python operator-contract gate-tests"
+  expected="bash-hygiene shellcheck public-repo-hygiene workflow-policy forbidden-api no-claude-in-workflows links yaml markdown size-budget actionlint claude-md deny-list toolchain python operator-contract cr-layout gate-tests"
   n=$(awk '{print $1}' <<<"$OUT" | grep -Ev '^(ID|CHECK)$' | tr '\n' ' ' | sed 's/ $//')
   if [[ $n == "$expected" ]]; then ok "--list shows check ids in order"; else fail "--list shows check ids in order" "got: $n"; fi
   out_has "--list shows the tool" "shellcheck"
@@ -1011,6 +1012,293 @@ PY
   fi
 }
 
+# ---------------------------------------------------------------- cr-layout and new-cr (T-7)
+
+# The change requests of these fixtures are made by the real scripts/new-cr from the real skeleton, and are then changed one way at
+# a time. Record numbers are written from fragments: the payload scan finds no record number in this file.
+CR='CR'
+ADR='ADR'
+CRP='CR-'
+ADP='ADR-'
+CRL_CONFIG=$'schema_version: 1\nworkflow:\n  docs_roots:\n    - "docs/"\n  operator_paths: []\n'
+TICK=$(printf '\140')
+FENCE="$TICK$TICK$TICK"
+CR_FILES=(README.md impact-analysis.md design.md acceptance-criteria.md implementation-plan.md)
+
+# cr_stage DIR [N]: a minimal repository (scripts, configuration, the skeleton) in which scripts/new-cr has made change request N.
+cr_stage() {
+  local d=$1 n=${2:-7}
+  mkdir -p "$d/config" "$d/docs/cr"
+  cp -R "$ROOT/scripts" "$d/scripts"
+  cp -R "$ROOT/docs/cr/_template" "$d/docs/cr/_template"
+  printf '%s' "$CRL_CONFIG" >"$d/config/project.yaml"
+  (cd "$d" && python3 -I -B scripts/new-cr "$n" demo >/dev/null)
+}
+
+gen_cr_layout_cases() {
+  local d="$WORK/gen/cr-layout" stage="$WORK/stage-cr" cr7 f
+  cr7="docs/cr/${CRP}7"
+  if [[ ! -d $stage ]]; then cr_stage "$stage"; fi
+  mk() { # mk NAME [EXPECT]: the generated change request, the configuration, and the skeleton
+    mkdir -p "$d/$1/docs/cr" "$d/$1/config"
+    cp -R "$stage/docs/cr/_template" "$d/$1/docs/cr/_template"
+    cp -R "$stage/$cr7" "$d/$1/$cr7"
+    cp "$stage/config/project.yaml" "$d/$1/config/project.yaml"
+    if [[ -n ${2:-} ]]; then printf '%s\n' "$2" >"$d/$1/EXPECT"; fi
+  }
+  mk pass-new-cr-skeleton
+  mkdir -p "$d/pass-empty-tree/config"
+  printf '%s' "$CRL_CONFIG" >"$d/pass-empty-tree/config/project.yaml"
+  mkdir -p "$d/pass-skeleton-only/docs/cr" "$d/pass-skeleton-only/config"
+  cp -R "$stage/docs/cr/_template" "$d/pass-skeleton-only/docs/cr/_template"
+  printf '%s' "$CRL_CONFIG" >"$d/pass-skeleton-only/config/project.yaml"
+  mkdir -p "$d/pass-no-docs-directory/config"
+  printf 'schema_version: 1\n' >"$d/pass-no-docs-directory/config/project.yaml"
+  mk pass-qualified-references
+  {
+    printf '\nSee #12, other-owner/other-repo#34, and other-repo:%s-5. A record of this repository: %s-6.\n' "$ADR" "$ADR"
+    printf 'A link [x](../other-repo#9) and https://example.org/other-repo#9 are not read.\n'
+    printf '%s\nother-repo#9 other-repo/%s-9\n%s\n' "$FENCE" "$ADR" "$FENCE"
+  } >>"$d/pass-qualified-references/$cr7/design.md"
+  mk pass-second-root
+  mkdir -p "$d/pass-second-root/records/cr"
+  mv "$d/pass-second-root/$cr7" "$d/pass-second-root/records/cr/${CRP}7"
+  printf 'schema_version: 1\nworkflow:\n  docs_roots:\n    - "docs/"\n    - "records/"\n' >"$d/pass-second-root/config/project.yaml"
+  mk pass-criteria-with-formatting
+  sed -i "s/^| AC-1 |/| **${TICK}AC-1${TICK}** |/" "$d/pass-criteria-with-formatting/$cr7/acceptance-criteria.md"
+  sed -i "s/| AC-1 |\$/| ${TICK}AC-1${TICK} and AC-1 |/" "$d/pass-criteria-with-formatting/$cr7/implementation-plan.md"
+
+  for f in "${CR_FILES[@]}"; do
+    mk "fail-missing-$f" "$f:1: the change request has no readable regular file"
+    rm "$d/fail-missing-$f/$cr7/$f"
+  done
+  mk fail-file-is-a-symbolic-link "design.md:1: the change request has no readable regular file"
+  rm "$d/fail-file-is-a-symbolic-link/$cr7/design.md"
+  ln -s README.md "$d/fail-file-is-a-symbolic-link/$cr7/design.md"
+  mk fail-skeleton-lacks-a-file "_template/design.md:1: the change request has no readable regular file"
+  rm "$d/fail-skeleton-lacks-a-file/docs/cr/_template/design.md"
+  mk fail-duplicate-criterion-id "duplicate criterion ID AC-1 (first at line"
+  printf '| AC-1 | a second criterion with the same ID | evidence |\n' >>"$d/fail-duplicate-criterion-id/$cr7/acceptance-criteria.md"
+  mk fail-criterion-without-an-id "is not of the form AC-1"
+  printf '| criterion two | a criterion without an ID | evidence |\n' >>"$d/fail-criterion-without-an-id/$cr7/acceptance-criteria.md"
+  mk fail-criteria-table-has-no-rows "no table with the columns ID"
+  sed -i '/^| AC-1 |/d' "$d/fail-criteria-table-has-no-rows/$cr7/acceptance-criteria.md"
+  mk fail-no-criteria-table "no table with the columns ID"
+  sed -i '/^|/d' "$d/fail-no-criteria-table/$cr7/acceptance-criteria.md"
+  mk fail-plan-row-without-criterion-id "plan row 2 names no criterion ID"
+  sed -i '/^| 1 | /a | 2 | second | content | needs | |' "$d/fail-plan-row-without-criterion-id/$cr7/implementation-plan.md"
+  mk fail-plan-row-names-an-undefined-criterion "names AC-9, which acceptance-criteria.md does not define"
+  sed -i 's/| AC-1 |$/| AC-1, AC-9 |/' "$d/fail-plan-row-names-an-undefined-criterion/$cr7/implementation-plan.md"
+  mk fail-plan-without-criteria-column "no PR table with an Acceptance criteria column"
+  sed -i 's/ | Acceptance criteria |$/ | Covers |/' "$d/fail-plan-without-criteria-column/$cr7/implementation-plan.md"
+  mk fail-plan-id-in-another-column "plan row 1 names no criterion ID"
+  sed -i 's/^| 1 | .*/| 1 | demo | adds AC-1 | AC-1 | none |/' "$d/fail-plan-id-in-another-column/$cr7/implementation-plan.md"
+  mk fail-unqualified-repository-reference "unqualified reference to another repository \"other-repo#12\""
+  printf '\nBlocked by other-repo#12.\n' >>"$d/fail-unqualified-repository-reference/$cr7/impact-analysis.md"
+  mk fail-unqualified-reference-in-a-table-cell "README.md:"
+  sed -i 's/^| ADR | none |/| ADR | other-repo#3 |/' "$d/fail-unqualified-reference-in-a-table-cell/$cr7/README.md"
+  mk fail-unqualified-adr-path "write other-repo:${ADP}3"
+  printf '\nSee other-repo/%s-3.\n' "$ADR" >>"$d/fail-unqualified-adr-path/$cr7/design.md"
+  mk fail-unqualified-change-request-path "write other-repo:${CRP}3"
+  printf '\nSee other-repo/%s-3.\n' "$CR" >>"$d/fail-unqualified-change-request-path/$cr7/design.md"
+  mk fail-unqualified-reference-in-an-adr "docs/adr/${ADP}1-x.md:"
+  mkdir -p "$d/fail-unqualified-reference-in-an-adr/docs/adr"
+  printf '# %s-1: x\n\nSupersedes other-repo#4.\n' "$ADR" >"$d/fail-unqualified-reference-in-an-adr/docs/adr/${ADP}1-x.md"
+  mk fail-unqualified-reference-in-an-extra-file "notes.md:"
+  printf 'Waiting for other-repo#4.\n' >"$d/fail-unqualified-reference-in-an-extra-file/$cr7/notes.md"
+  mk fail-not-a-change-request-directory "not a change request directory"
+  mkdir -p "$d/fail-not-a-change-request-directory/docs/cr/notes"
+  printf 'x\n' >"$d/fail-not-a-change-request-directory/docs/cr/notes/README.md"
+  mk fail-change-request-number-with-a-leading-zero "not a change request directory"
+  mv "$d/fail-change-request-number-with-a-leading-zero/$cr7" "$d/fail-change-request-number-with-a-leading-zero/docs/cr/${CRP}07"
+  mk fail-change-request-without-the-prefix "not a change request directory"
+  mv "$d/fail-change-request-without-the-prefix/$cr7" "$d/fail-change-request-without-the-prefix/docs/cr/7"
+  mk fail-second-root-is-read "records/cr/${CRP}8/design.md:1"
+  mkdir -p "$d/fail-second-root-is-read/records/cr/${CRP}8"
+  printf '# x\n' >"$d/fail-second-root-is-read/records/cr/${CRP}8/README.md"
+  printf 'schema_version: 1\nworkflow:\n  docs_roots:\n    - "docs/"\n    - "records/"\n' >"$d/fail-second-root-is-read/config/project.yaml"
+  mk fail-configuration-is-missing "fails closed"
+  rm "$d/fail-configuration-is-missing/config/project.yaml"
+  mk fail-docs-roots-malformed "docs_roots cannot be read"
+  printf 'schema_version: 1\nworkflow:\n  docs_roots:\n    - docs\n' >"$d/fail-docs-roots-malformed/config/project.yaml"
+  mk fail-docs-roots-misspelled "docs_roots cannot be read"
+  printf 'schema_version: 1\nworkflow:\n  docs_root:\n    - "docs/"\n' >"$d/fail-docs-roots-misspelled/config/project.yaml"
+  mk fail-cr-directory-is-a-symbolic-link "is a symbolic link"
+  mv "$d/fail-cr-directory-is-a-symbolic-link/docs/cr/_template" "$d/fail-cr-directory-is-a-symbolic-link/elsewhere"
+  rm -r "$d/fail-cr-directory-is-a-symbolic-link/docs/cr"
+  ln -s ../elsewhere "$d/fail-cr-directory-is-a-symbolic-link/docs/cr"
+}
+
+# cr-layout reads the roots from the base commit, like the other checks: a head that drops a root from docs_roots does not
+# take its change requests out of the check.
+test_cr_layout_policy() {
+  local repo="$WORK/cr-policy" base cr7="docs/cr/${CRP}7"
+  cr_stage "$repo"
+  git -C "$repo" init -q -b main
+  printf '# the change request is broken\n' >"$repo/$cr7/design.md"
+  rm "$repo/$cr7/impact-analysis.md"
+  commit_all "$repo" base
+  printf 'schema_version: 1\nworkflow:\n  docs_roots:\n    - "elsewhere/"\n' >"$repo/config/project.yaml"
+  base=$(head_commit "$repo")
+  gate "$repo" --only cr-layout
+  rc_is "cr-layout: a head that drops docs/ from docs_roots passes when read from the working tree" 0
+  gate "$repo" --only cr-layout --base "$base"
+  rc_is "cr-layout --base: the same head fails by the base docs_roots" 1
+  out_has "cr-layout --base: the finding names the missing file" "impact-analysis.md"
+  RC=0
+  OUT=$(GATE_BASE_REF=$base "$BASH" "$repo/scripts/quality-gate.sh" --only cr-layout 2>&1) || RC=$?
+  rc_is "cr-layout GATE_BASE_REF: the same head fails by the base docs_roots" 1
+  # a changed-files run still sees the whole change request: only design.md changed since the base
+  git -C "$repo" checkout -q "$base" -- config/project.yaml
+  printf 'one more line\n' >>"$repo/$cr7/design.md"
+  git -C "$repo" commit -q -am head2
+  gate "$repo" --only cr-layout --base "$base"
+  rc_is "cr-layout --base: a change to one file is judged with the files that did not change" 1
+  out_has "cr-layout --base: the file that did not change is found missing" "impact-analysis.md"
+  RC=0
+  OUT=$(GATE_BASE_REF=no-such-ref "$BASH" "$repo/scripts/quality-gate.sh" --only cr-layout 2>&1) || RC=$?
+  rc_is "cr-layout: an unreadable base commit fails closed" 1
+  RC=0
+  OUT=$(GATE_BASE_REF=--no-such-option "$BASH" "$repo/scripts/quality-gate.sh" --only cr-layout 2>&1) || RC=$?
+  rc_is "cr-layout: a base value that looks like an option fails closed" 1
+  git -C "$repo" rm -q config/project.yaml
+  git -C "$repo" commit -q -m noconfig
+  gate "$repo" --only cr-layout --base HEAD
+  rc_is "cr-layout --base: a base without a configuration file fails closed" 1
+  out_has "cr-layout: the failure says so" "fails closed"
+}
+
+# new-cr: creates the five files, refuses to overwrite, validates its arguments, has --dry-run (T-7).
+test_new_cr() {
+  local repo="$WORK/new-cr" n f before last cr12="docs/cr/${CRP}12"
+  cr_stage "$repo" 5
+  git -C "$repo" init -q -b main
+  newcr() {
+    RC=0
+    OUT=$(cd "$repo" && python3 -I -B scripts/new-cr "$@" 2>&1) || RC=$?
+  }
+  digest() { (cd "$repo" && find docs -type f -exec sha256sum {} + | LC_ALL=C sort | sha256sum); }
+
+  newcr --dry-run 12 add-thing
+  rc_is "new-cr --dry-run exits 0" 0
+  out_has "new-cr --dry-run says what it would do" "would create $cr12/"
+  if [[ ! -e $repo/$cr12 ]]; then ok "new-cr --dry-run writes nothing"; else fail "new-cr --dry-run writes nothing"; fi
+  newcr 12 add-thing
+  rc_is "new-cr creates the skeleton" 0
+  for f in "${CR_FILES[@]}"; do
+    if [[ -s $repo/$cr12/$f ]]; then ok "new-cr writes $f"; else fail "new-cr writes $f"; fi
+  done
+  n=$(find "$repo/$cr12" -type f | wc -l)
+  if [[ $n -eq 5 ]]; then ok "new-cr writes exactly five files"; else fail "new-cr writes exactly five files" "got $n"; fi
+  if grep -q "^# ${CRP}12: " "$repo/$cr12/README.md" && grep -q '^| Issue | #12 |' "$repo/$cr12/README.md" &&
+    grep -q "design/${CRP}12-add-thing" "$repo/$cr12/README.md"; then ok "new-cr fills in the number and the slug"; else fail "new-cr fills in the number and the slug"; fi
+  if grep -rqE '<n>|<slug>' "$repo/$cr12"; then fail "new-cr leaves no <n> or <slug> placeholder"; else ok "new-cr leaves no <n> or <slug> placeholder"; fi
+  last=$(tail -n 1 <<<"$OUT")
+  if [[ $last == "new-cr: created $cr12/ with 5 files"* && ${#last} -le 120 ]]; then ok "new-cr ends with its summary line, within 120 characters"; else fail "new-cr ends with its summary line, within 120 characters" "$last"; fi
+  commit_all "$repo" cr
+  gate "$repo" --only cr-layout
+  rc_is "cr-layout passes the skeleton that new-cr wrote" 0
+
+  before=$(digest)
+  newcr 12 add-thing
+  rc_is "new-cr refuses to overwrite" 1
+  out_has "new-cr names the existing directory" "already exists"
+  newcr 12 other-slug
+  rc_is "new-cr refuses to overwrite with another slug" 1
+  if [[ $before == "$(digest)" ]]; then ok "new-cr changes nothing when it refuses"; else fail "new-cr changes nothing when it refuses"; fi
+  rm "$repo/$cr12/design.md"
+  newcr 12 add-thing
+  rc_is "new-cr refuses a directory that lacks one file" 1
+  if [[ ! -e $repo/$cr12/design.md ]]; then ok "new-cr does not complete a partial directory"; else fail "new-cr does not complete a partial directory"; fi
+  mkdir "$repo/docs/cr/${CRP}13"
+  newcr 13 empty-directory
+  rc_is "new-cr refuses an existing empty directory" 1
+  printf 'x\n' >"$repo/docs/cr/${CRP}14"
+  newcr 14 a-file
+  rc_is "new-cr refuses an existing file of that name" 1
+
+  for n in 0 007 abc -1 '' 1.5 99999999999; do
+    newcr "$n" ok-slug
+    rc_is "new-cr rejects the number '$n'" 2
+  done
+  for n in Bad a--b -a a- 'a b' 'a/b' '../x' '' "$(printf 'a%.0s' {1..41})"; do
+    newcr 20 "$n"
+    rc_is "new-cr rejects the slug '${n:0:12}'" 2
+  done
+  newcr 20
+  rc_is "new-cr needs both arguments" 2
+  newcr 20 a b
+  rc_is "new-cr rejects a third argument" 2
+  if [[ ! -e $repo/docs/cr/${CRP}20 && ! -e $repo/docs/cr/${CRP}007 && ! -e $repo/docs/cr/${CRP}0 ]]; then ok "new-cr writes nothing for a rejected argument"; else fail "new-cr writes nothing for a rejected argument"; fi
+
+  # roots: the first entry of docs_roots by default, another entry with --root, nothing else
+  printf 'schema_version: 1\nworkflow:\n  docs_roots:\n    - "first/"\n    - "second/dir/"\n' >"$repo/config/project.yaml"
+  newcr 30 in-first
+  rc_is "new-cr writes into the first docs root" 0
+  if [[ -f $repo/first/cr/${CRP}30/README.md ]]; then ok "new-cr: the default is the first root"; else fail "new-cr: the default is the first root"; fi
+  newcr --root second/dir/ 31 in-second
+  rc_is "new-cr --root takes another configured root" 0
+  if [[ -f $repo/second/dir/cr/${CRP}31/README.md ]]; then ok "new-cr --root writes into that root"; else fail "new-cr --root writes into that root"; fi
+  newcr --root docs/ 32 not-configured
+  rc_is "new-cr --root refuses a root that is not configured" 2
+  newcr --root ../outside/ 33 outside
+  rc_is "new-cr --root refuses a path outside the repository" 2
+  printf 'schema_version: 1\nworkflow:\n  docs_roots:\n    - "linked/"\n' >"$repo/config/project.yaml"
+  mkdir "$WORK/new-cr-outside"
+  ln -s "$WORK/new-cr-outside" "$repo/linked"
+  newcr 34 through-a-link
+  rc_is "new-cr refuses to write through a symbolic link" 1
+  if [[ -z $(find "$WORK/new-cr-outside" -type f) ]]; then ok "new-cr wrote nothing through the link"; else fail "new-cr wrote nothing through the link"; fi
+  rm "$repo/linked"
+  printf 'schema_version: 1\nworkflow:\n  docs_root:\n    - "docs/"\n' >"$repo/config/project.yaml"
+  newcr 35 bad-config
+  rc_is "new-cr fails closed on a malformed configuration" 1
+  rm "$repo/config/project.yaml"
+  newcr 36 no-config
+  rc_is "new-cr fails closed without a configuration" 1
+  printf '%s' "$CRL_CONFIG" >"$repo/config/project.yaml"
+  mv "$repo/docs/cr/_template" "$WORK/new-cr-skeleton"
+  newcr 37 no-skeleton
+  rc_is "new-cr refuses without the skeleton" 1
+  if [[ -z $(find "$repo" -name '__pycache__' -o -name '*.pyc') ]]; then ok "new-cr leaves no bytecode"; else fail "new-cr leaves no bytecode"; fi
+}
+
+# headings_of FILE HEADING...: prints the first HEADING that is not a line of FILE and fails.
+headings_of() {
+  local file=$1 want
+  shift
+  for want in "$@"; do
+    if ! grep -qxF -- "$want" "$file"; then
+      printf '%s' "$want"
+      return 1
+    fi
+  done
+}
+
+# The skeleton files and the ADR template have the headers and sections of the design (T-7).
+test_record_templates() {
+  local t="$ROOT/docs/cr/_template" f adr="$ROOT/docs/adr/_template.md" h=''
+  for f in "${CR_FILES[@]}"; do
+    if [[ -f $t/$f ]]; then ok "skeleton has $f"; else fail "skeleton has $f"; fi
+  done
+  if h=$(headings_of "$t/README.md" '## Summary' '## Files') && grep -q '^| Issue | ' "$t/README.md" && grep -q '^| Class | ' "$t/README.md" &&
+    grep -q '^| Status | ' "$t/README.md" && grep -q '^| ADR | ' "$t/README.md"; then ok "skeleton README.md has the summary table, the summary, and the file table"; else fail "skeleton README.md has the summary table, the summary, and the file table" "$h"; fi
+  if h=$(headings_of "$t/impact-analysis.md" '## What changes' '## Affected components' '## Security and privacy' '## Operational impact on the approver' \
+    '## Dependencies and assumptions' '## Cost and capacity' '## Rollback' '## Alternatives'); then ok "skeleton impact-analysis.md has the eight sections"; else fail "skeleton impact-analysis.md has the eight sections" "$h"; fi
+  if h=$(headings_of "$t/design.md" '## Decisions in this design' '## Questions' '## Decisions of the approver') && grep -q '^| Status | ' "$t/design.md"; then ok "skeleton design.md has the header table, the decisions table, and the sections"; else fail "skeleton design.md has the header table, the decisions table, and the sections" "$h"; fi
+  if grep -q '^| ID | Criterion | Evidence |$' "$t/acceptance-criteria.md"; then ok "skeleton acceptance-criteria.md has the ID, Criterion, Evidence table"; else fail "skeleton acceptance-criteria.md has the ID, Criterion, Evidence table"; fi
+  if h=$(headings_of "$t/implementation-plan.md" '## 1. The PRs' '## 2. Checklist (each PR keeps its own)' '## 3. User-only actions' '## 4. What this plan does not do'); then ok "skeleton implementation-plan.md has the PR table, checklist, user-only actions, and the not-do list"; else fail "skeleton implementation-plan.md has the PR table, checklist, user-only actions, and the not-do list" "$h"; fi
+  if [[ -f $adr ]]; then ok "the ADR template exists"; else fail "the ADR template exists"; fi
+  for h in Status Date Repositories CR Scope Related 'Amended by'; do
+    if grep -q "^| $h | " "$adr"; then ok "the ADR template header has $h"; else fail "the ADR template header has $h"; fi
+  done
+  if h=$(headings_of "$adr" '## Context' '## Decision' '## Alternatives' '## Consequences' '## Open items' '## Acceptance criteria'); then ok "the ADR template has its six sections"; else fail "the ADR template has its six sections" "$h"; fi
+  if grep -q "^# ${ADP}<n>: " "$adr"; then ok "the ADR template title carries the placeholder number"; else fail "the ADR template title carries the placeholder number"; fi
+  # the owned templates cite no record by a real number, and the summary file is within its budget
+  if grep -rEq "\b(CR|ADR)-[0-9]+\b" "$t" "$adr"; then fail "the owned templates cite no record number"; else ok "the owned templates cite no record number"; fi
+  if [[ $(wc -l <"$t/README.md") -le 50 && $(wc -c <"$t/README.md") -le 4096 ]]; then ok "skeleton README.md is within the cr-readme budget"; else fail "skeleton README.md is within the cr-readme budget"; fi
+}
+
 # ---------------------------------------------------------------- main
 
 if want dispatcher; then test_dispatcher; fi
@@ -1019,6 +1307,9 @@ if want workflow-policy; then test_workflow_policy; fi
 if want claude-md; then test_claude_md_scope; fi
 if want operator-contract; then test_operator_contract; fi
 if want operator_guard; then test_operator_guard; fi
+if want cr-layout; then test_cr_layout_policy; fi
+if want new-cr; then test_new_cr; fi
+if want cr-layout || want new-cr; then test_record_templates; fi
 if want instructions; then test_instruction_files; fi
 run_check_fixtures
 for f in "$CHECKS"/*.sh; do
