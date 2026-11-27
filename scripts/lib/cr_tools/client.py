@@ -1,10 +1,11 @@
 """GitHub access for the Skill scripts, and its offline twin.
 
 Everything goes through `gh api` with an argument array (never a shell). Each endpoint and each GraphQL document is written out in
-this file, so the gate check `forbidden-api` can read it; a variable stands only for a whole path segment. Reads are GET. The only
-writes are the ones the Skills need: the pull request body (REST PATCH), marking a pull request ready (the GraphQL mutation
-`markPullRequestReadyForReview`), and adding an existing label to an issue. `gh pr edit` and `gh pr ready` are not used: both fail on
-a host with the Projects classic error. The token is never read here; `gh` takes it from its own environment.
+this file, so the gate check `forbidden-api` can read it; a variable stands only for a whole path segment. Reads are GET, or a GraphQL
+document that starts with `query`. The only writes are the ones the Skills need: the pull request body (REST PATCH), marking a pull
+request ready (the GraphQL mutation `markPullRequestReadyForReview`), adding an existing label to an issue, and one reply on a review
+thread (the GraphQL mutation `addPullRequestReviewThreadReply`). `gh pr edit` and `gh pr ready` are not used: both fail on a host
+with the Projects classic error. The token is never read here; `gh` takes it from its own environment.
 
 Both clients have the same interface. Writes act on the client's own repository only. The offline client reads a directory:
 
@@ -13,11 +14,14 @@ Both clients have the same interface. Writes act on the client's own repository 
     pr-<n>.json                a pull request as the API returns it (with `node_id`)
     pulls.json                 the list of pull requests (one page); an empty file `pulls-limited` makes the search report that it was limited
     labels.json                the labels of the repository: [{"name": "..."}]
+    review-threads-<n>.json    the GraphQL answer for the review threads of pull request <n> (`{"data": {"repository": ...}}`, one page)
+    reviews-<n>.json           the GraphQL answer for its reviews
+    compare-<sha>.json         {"status": "ahead"} for a commit that is on the head of a pull request (a missing file: it is not)
     check-runs-<sha>.json      {"check_runs": [...]}        annotations-<id>.json   [...]
     base/config/project.yaml   the configuration of the base commit, or of the default branch for an issue
     repos/<owner>/<name>/      the same files for another repository (without that directory it is not readable)
 
-Writes change the files of the directory (`pr-<n>.json`, `labels-added.json`), so a test works on a copy.
+Writes change the files of the directory (`pr-<n>.json`, `labels-added.json`, `replies.json`), so a test works on a copy.
 """
 import json
 import os
@@ -32,9 +36,12 @@ from pr_contract.errors import ApiError, ConfigError, InputError, NotFound
 MAX_PAGES = 5
 PAGE_SIZE = 100
 MAX_ITEMS = 100
+THREAD_PAGE = 50
+MAX_REVIEW_PAGES = 10
 _NODE_ID = re.compile(r"[A-Za-z0-9_=-]{4,100}")
 _LABEL = re.compile(r"[A-Za-z0-9 :._-]{1,50}")
 _SHA = re.compile(r"[0-9a-f]{40}")
+_THREAD_ID = re.compile(r"PRRT_[A-Za-z0-9_-]{1,90}")
 _ENV_KEEP = base_api._ENV_KEEP
 
 
@@ -76,6 +83,17 @@ def issue_data(raw):
     }
 
 
+def _repo_name(side):
+    """`full_name` of the repository of a `head` or `base` object, or None (a deleted fork has none)."""
+    repo = side.get("repo")
+    if repo is None:
+        return None
+    name = _object(repo).get("full_name")
+    if not isinstance(name, str):
+        raise ApiError("malformed response")
+    return name
+
+
 def pull_data(raw):
     raw = _object(raw)
     head, base = _field(raw, "head", dict), _field(raw, "base", dict)
@@ -86,6 +104,7 @@ def pull_data(raw):
     if not isinstance(node_id, str):
         raise ApiError("malformed response")
     return {
+        "head_repo": _repo_name(head), "base_repo": _repo_name(base),
         "number": _field(raw, "number", int), "title": _field(raw, "title", str), "body": body or "",
         "state": _field(raw, "state", str), "draft": _field(raw, "draft", bool), "merged": raw.get("merged", False) is True,
         "author": _login(raw), "head_ref": _field(head, "ref", str), "head_sha": _field(head, "sha", str),
@@ -130,6 +149,104 @@ def _search_hit(item, prefix):
         "number": _field(item, "number", int), "title": _field(item, "title", str), "state": _field(item, "state", str),
         "merged": item.get("merged_at") is not None or item.get("merged") is True, "head_ref": ref,
     }
+
+
+def _actor(raw):
+    """{login, type, id} of a GraphQL actor (the `__typename` and the `databaseId` of a user or a bot), or None."""
+    if raw is None:
+        return None
+    raw = _object(raw)
+    uid = raw.get("databaseId")
+    if uid is not None and (not isinstance(uid, int) or isinstance(uid, bool)):
+        raise ApiError("malformed response")
+    return {"login": _field(raw, "login", str), "type": _field(raw, "__typename", str), "id": uid}
+
+
+def _history(raw):
+    """The `userContentEdits` of a comment: {total, more, editors}; None when GitHub gave none (the history is then unknown)."""
+    if raw is None:
+        return None
+    raw = _object(raw)
+    nodes, info = raw.get("nodes"), raw.get("pageInfo")
+    if not isinstance(nodes, list) or not isinstance(info, dict) or not isinstance(info.get("hasNextPage"), bool):
+        raise ApiError("malformed response")
+    return {"total": _field(raw, "totalCount", int), "more": info["hasNextPage"], "editors": [_actor(_object(node).get("editor")) for node in nodes]}
+
+
+def _timestamp(raw, key):
+    value = raw.get(key)
+    if value is not None and not isinstance(value, str):
+        raise ApiError("malformed response")
+    return value
+
+
+def comment_data(raw):
+    """A review comment or a review as GraphQL returns it, reduced to what the judgement needs. Nothing is judged here."""
+    raw = _object(raw)
+    node_id = _field(raw, "id", str)
+    if not _NODE_ID.fullmatch(node_id):
+        raise ApiError("malformed response")
+    return {
+        "id": node_id, "author": _actor(raw.get("author")), "body": _field(raw, "body", str), "last_edited_at": _timestamp(raw, "lastEditedAt"),
+        "created_edit": _field(raw, "includesCreatedEdit", bool), "editor": _actor(raw.get("editor")), "history": _history(raw.get("userContentEdits")),
+    }
+
+
+def _connection(page, key):
+    """(nodes, total or None, has_next, end_cursor) of the connection `key` of the pull request in a GraphQL answer."""
+    data = _object(page).get("data")
+    repository = _object(data).get("repository") if data is not None else None
+    request = _object(repository).get("pullRequest") if repository is not None else None
+    if request is None:
+        raise NotFound("not found")
+    connection = _object(_object(request).get(key))
+    nodes, info = connection.get("nodes"), connection.get("pageInfo")
+    if not isinstance(nodes, list) or not isinstance(info, dict) or not isinstance(info.get("hasNextPage"), bool):
+        raise ApiError("malformed response")
+    cursor = info.get("endCursor")
+    if cursor is not None and (not isinstance(cursor, str) or not _NODE_ID.fullmatch(cursor)):
+        raise ApiError("malformed response")
+    total = connection.get("totalCount")
+    if total is not None and (not isinstance(total, int) or isinstance(total, bool)):
+        raise ApiError("malformed response")
+    return nodes, total, info["hasNextPage"], cursor
+
+
+def thread_page(page):
+    """([thread], has_next, cursor) of one answer of the review-threads query."""
+    nodes, _, more, cursor = _connection(page, "reviewThreads")
+    threads = []
+    for raw in nodes:
+        raw = _object(raw)
+        node_id = _field(raw, "id", str)
+        if not _THREAD_ID.fullmatch(node_id):
+            raise ApiError("malformed response")
+        comments = _object(raw.get("comments"))
+        items = comments.get("nodes")
+        if not isinstance(items, list):
+            raise ApiError("malformed response")
+        line = raw.get("line") if raw.get("line") is not None else raw.get("originalLine")
+        if line is not None and (not isinstance(line, int) or isinstance(line, bool)):
+            raise ApiError("malformed response")
+        threads.append({
+            "id": node_id, "path": _field(raw, "path", str), "line": line, "outdated": _field(raw, "isOutdated", bool),
+            "resolved": _field(raw, "isResolved", bool), "comments": [comment_data(item) for item in items],
+            "comments_total": _field(comments, "totalCount", int),
+        })
+    return threads, more, cursor
+
+
+def review_page(page):
+    """([review], total, has_next, cursor) of one answer of the reviews query."""
+    nodes, total, more, cursor = _connection(page, "reviews")
+    if total is None:
+        raise ApiError("malformed response")
+    reviews = []
+    for raw in nodes:
+        item = comment_data(raw)
+        item["state"] = _field(_object(raw), "state", str)
+        reviews.append(item)
+    return reviews, total, more, cursor
 
 
 class GhClient:
@@ -238,6 +355,70 @@ class GhClient:
             return False
         return data.get("name") == name
 
+    def review_threads(self, number):
+        """Every review thread of a pull request of this repository, paged by cursor: [thread] (see `thread_page`)."""
+        base_api.check_number(number)
+        owner, name = self.repo.split("/")
+        threads, cursor = [], None
+        for _ in range(MAX_REVIEW_PAGES):
+            argv = [
+                "gh", "api", "graphql",
+                "-f", "query=query($owner: String!, $name: String!, $number: Int!, $after: String) { repository(owner: $owner, name: $name) { pullRequest(number: $number) { reviewThreads(first: 50, after: $after) { pageInfo { hasNextPage endCursor } nodes { id isResolved isOutdated path line originalLine comments(first: 50) { totalCount nodes { id body lastEditedAt includesCreatedEdit author { login __typename ... on User { databaseId } ... on Bot { databaseId } } editor { login __typename ... on User { databaseId } ... on Bot { databaseId } } userContentEdits(first: 20) { totalCount pageInfo { hasNextPage } nodes { editor { login __typename ... on User { databaseId } ... on Bot { databaseId } } } } } } } } } } }",
+                "-f", f"owner={owner}", "-f", f"name={name}", "-F", f"number={number}",
+            ]
+            if cursor is not None:
+                argv += ["-f", f"after={cursor}"]
+            page, more, cursor = thread_page(self._call(argv))
+            threads += page
+            if not more:
+                return threads
+        raise ApiError("too many review threads")
+
+    def reviews(self, number):
+        """(reviews, total): the reviews of a pull request, paged by cursor, and how many exist (see `review_page`)."""
+        base_api.check_number(number)
+        owner, name = self.repo.split("/")
+        reviews, cursor = [], None
+        for _ in range(MAX_REVIEW_PAGES):
+            argv = [
+                "gh", "api", "graphql",
+                "-f", "query=query($owner: String!, $name: String!, $number: Int!, $after: String) { repository(owner: $owner, name: $name) { pullRequest(number: $number) { reviews(first: 50, after: $after) { totalCount pageInfo { hasNextPage endCursor } nodes { id state body lastEditedAt includesCreatedEdit author { login __typename ... on User { databaseId } ... on Bot { databaseId } } editor { login __typename ... on User { databaseId } ... on Bot { databaseId } } userContentEdits(first: 20) { totalCount pageInfo { hasNextPage } nodes { editor { login __typename ... on User { databaseId } ... on Bot { databaseId } } } } } } } } }",
+                "-f", f"owner={owner}", "-f", f"name={name}", "-F", f"number={number}",
+            ]
+            if cursor is not None:
+                argv += ["-f", f"after={cursor}"]
+            page, total, more, cursor = review_page(self._call(argv))
+            reviews += page
+            if not more:
+                return reviews, total
+        raise ApiError("too many reviews")
+
+    def thread_pull(self, thread_id):
+        """(repository, number) of the pull request a review thread belongs to; None when the ID is not a review thread."""
+        if not _THREAD_ID.fullmatch(thread_id):
+            raise InputError("invalid thread id")
+        data = _object(self._call([
+            "gh", "api", "graphql",
+            "-f", "query=query($id: ID!) { node(id: $id) { __typename ... on PullRequestReviewThread { pullRequest { number repository { nameWithOwner } } } } }",
+            "-f", f"id={thread_id}",
+        ]))
+        node = (_object(data.get("data")).get("node")) if data.get("data") is not None else None
+        if node is None or _object(node).get("__typename") != "PullRequestReviewThread":
+            return None
+        request = _object(_object(node).get("pullRequest"))
+        repository = _object(request.get("repository"))
+        return _field(repository, "nameWithOwner", str), _field(request, "number", int)
+
+    def is_ancestor(self, commit, head_sha):
+        """True when `commit` is the head commit or one of its ancestors (the compare status of `commit...head` is `identical` or `ahead`)."""
+        if not _SHA.fullmatch(commit) or not _SHA.fullmatch(head_sha):
+            raise InputError("invalid commit")
+        try:
+            data = _object(self._call(["gh", "api", f"repos/{self.repo}/compare/{commit}...{head_sha}"]))
+        except NotFound:
+            return False
+        return data.get("status") in ("identical", "ahead")
+
     def check_runs(self, sha):
         if not _SHA.fullmatch(sha):
             raise ApiError("malformed response")
@@ -262,6 +443,19 @@ class GhClient:
         data = _object(self._call(["gh", "api", "-X", "PATCH", f"repos/{self.repo}/pulls/{number}", "--input", "-"], payload))
         if data.get("number") != number:
             raise ApiError("malformed response")
+
+    def reply_to_thread(self, thread_id, body):
+        """Post ONE reply on a review thread of this repository (the GraphQL mutation; no review is created, nothing is resolved)."""
+        if not _THREAD_ID.fullmatch(thread_id):
+            raise InputError("invalid thread id")
+        data = _object(self._call([
+            "gh", "api", "graphql",
+            "-f", "query=mutation($thread: ID!, $body: String!) { addPullRequestReviewThreadReply(input: {pullRequestReviewThreadId: $thread, body: $body}) { comment { id } } }",
+            "-f", f"thread={thread_id}", "-f", f"body={body}",
+        ]))
+        reply = (_object(data.get("data")).get("addPullRequestReviewThreadReply")) if data.get("data") is not None else None
+        if not isinstance(reply, dict) or not isinstance(reply.get("comment"), dict):
+            raise ApiError("the reply was not posted")
 
     def mark_ready(self, node_id):
         """Mark a draft pull request ready with the GraphQL mutation."""
@@ -359,6 +553,44 @@ class FixtureClient:
             raise ApiError("malformed response")
         return any(isinstance(item, dict) and item.get("name") == name for item in labels)
 
+    def _page(self, name):
+        try:
+            return self._load(self._dir, name)
+        except NotFound:
+            raise NotFound("not found") from None
+
+    def review_threads(self, number):
+        base_api.check_number(number)
+        threads, more, _ = thread_page(self._page(f"review-threads-{number}.json"))
+        if more:
+            raise ApiError("too many review threads")
+        return threads
+
+    def reviews(self, number):
+        base_api.check_number(number)
+        reviews, total, more, _ = review_page(self._page(f"reviews-{number}.json"))
+        if more:
+            raise ApiError("too many reviews")
+        return reviews, total
+
+    def thread_pull(self, thread_id):
+        if not _THREAD_ID.fullmatch(thread_id):
+            raise InputError("invalid thread id")
+        for path in sorted(self._dir.glob("review-threads-*.json")):
+            number = path.stem.rsplit("-", 1)[1]
+            if number.isdigit() and any(thread["id"] == thread_id for thread in thread_page(self._load(self._dir, path.name))[0]):
+                return self.repo, int(number)
+        return None
+
+    def is_ancestor(self, commit, head_sha):
+        if not _SHA.fullmatch(commit) or not _SHA.fullmatch(head_sha):
+            raise InputError("invalid commit")
+        try:
+            data = _object(self._load(self._dir, f"compare-{commit}.json"))
+        except NotFound:
+            return False
+        return data.get("status") in ("identical", "ahead")
+
     def check_runs(self, sha):
         if not _SHA.fullmatch(sha):
             raise ApiError("malformed response")
@@ -387,6 +619,15 @@ class FixtureClient:
         raw = _object(self._load(self._dir, f"pr-{number}.json"))
         raw["body"] = body
         self._store(f"pr-{number}.json", raw)
+
+    def reply_to_thread(self, thread_id, body):
+        if not _THREAD_ID.fullmatch(thread_id):
+            raise InputError("invalid thread id")
+        try:
+            replies = self._load(self._dir, "replies.json")
+        except NotFound:
+            replies = []
+        self._store("replies.json", replies + [{"thread": thread_id, "body": body}])
 
     def mark_ready(self, node_id):
         for path in sorted(self._dir.glob("pr-*.json")):

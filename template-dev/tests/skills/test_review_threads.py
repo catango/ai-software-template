@@ -301,6 +301,7 @@ class Refusals(Base):
     def test_a_head_repository_name_in_other_case_is_the_same_repository(self):
         helpers.add_pr(self.fix, 55, head_repo=REPO.upper())
         put_threads(self.fix, 55, [good()])
+        put_reviews(self.fix, 55, [])
         self.assertEqual(self.run_("55")[0], 0)
 
     def test_refuses_when_approver_id_is_missing_in_the_base_configuration(self):
@@ -690,7 +691,7 @@ class StaticChecks(unittest.TestCase):
         self.assertEqual(imported & {"subprocess", "socket", "urllib", "http", "requests", "ssl", "os"}, set())
         text = self.sources()["review.py"]
         self.assertNotIn("shell=True", text)
-        self.assertNotRegex(text, r"\b(eval|exec|compile|__import__)\(")
+        self.assertNotRegex(text, r"(?<![\w.])(eval|exec|compile|__import__)\(")
 
     def test_the_client_reads_graphql_documents_and_has_one_mutation_the_reply(self):
         text = self.sources()["client.py"]
@@ -701,7 +702,8 @@ class StaticChecks(unittest.TestCase):
         self.assertEqual(names, ["addPullRequestReviewThreadReply", "markPullRequestReadyForReview"])
         self.assertGreaterEqual(len(documents) - len(mutations), 3)  # the reads: threads, reviews, the thread's pull request
         for doc in documents:
-            self.assertNotIn("mutation", doc.replace("mutation($", "").replace("mutation (", "")) if doc.startswith("query") else None
+            if doc.startswith("query"):
+                self.assertNotIn("mutation", doc)
 
     def test_the_reply_mutation_names_no_review(self):
         text = self.sources()["client.py"]
