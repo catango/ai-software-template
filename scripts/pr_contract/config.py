@@ -19,6 +19,9 @@ subset raises ConfigError, so the rules that need them fail closed instead of gu
         runner_private: "runner-a"
 
 The three lists may appear in any order, each at most once. Comments, blank lines, and any other top-level key are skipped.
+A key that looks like a misspelling of one of the keys read (within two edits, or the same ignoring case and hyphens: `docs_root`,
+`Design-Repos`, `workflows`) is an error that names it (`NearMissKey`), never an absent key: an absent `docs_roots` is the default, so
+a typo would silently drop a protection. Keys far from these are the project's own and are skipped.
 Flow style, anchors, aliases, tags, tabs, block scalars, a repeated key, a quoted key, and a second YAML document are errors
 inside the keys that are read. Plain values that YAML would not read as a string (numbers, true, false, null) are errors; quote
 them.
@@ -37,7 +40,7 @@ a missing key fails closed.
 import re
 from dataclasses import dataclass
 
-from .errors import ConfigError
+from .errors import ConfigError, NearMissKey
 
 MAX_TEXT = 65536
 MAX_ENTRY = 200
@@ -64,6 +67,39 @@ _NOTHING = re.compile(_COMMENT)
 _FIRST = re.compile(rf"(?P<indent> *)-(?P<gap> +)(?P<key>[a-z_]+):(?: +(?P<val>{_VALUE}))?{_COMMENT}")
 _NEXT = re.compile(rf"(?P<indent> +)(?P<key>[a-z_]+):(?: +(?P<val>{_VALUE}))?{_COMMENT}")
 _NOT_A_STRING = re.compile(r"(?i)(?:true|false|null|~|yes|no|on|off|y|n)|[-+.]?[0-9].*")
+
+
+TOP_KEYS = ("architectures", "workflow")
+WORKFLOW_KEYS = ("design_repos", "operator_paths", "docs_roots")
+_PLAIN_KEY = re.compile(r"(?P<key>[A-Za-z0-9_.-]+):(?: .*)?")
+MAX_DISTANCE = 2
+
+
+def _distance(a, b):
+    """The edit distance of two short strings (insert, delete, replace one character)."""
+    row = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        new = [i]
+        for j, cb in enumerate(b, 1):
+            new.append(min(row[j] + 1, new[j - 1] + 1, row[j - 1] + (ca != cb)))
+        row = new
+    return row[-1]
+
+
+def _near_miss(key, known):
+    """True for a key that is not one of `known` but is, once case and hyphens are ignored, within two edits of one. A key far
+    from every known key (a project's own key) is not."""
+    if key in known:
+        return False
+    plain = key.lower().replace("-", "_")
+    return any(plain == name or _distance(plain, name) <= MAX_DISTANCE for name in known)
+
+
+def _check_key(line, known):
+    """Raise NearMissKey when the line is `key:` with a key that looks like a misspelling of one of `known`."""
+    match = _PLAIN_KEY.fullmatch(line)
+    if match and _near_miss(match.group("key"), known):
+        raise NearMissKey(match.group("key"))
 
 
 @dataclass(frozen=True)
@@ -107,6 +143,7 @@ def parse_yaml(text):
                 continue
             raise ConfigError("more than one YAML document")
         seen_content = True
+        _check_key(line, TOP_KEYS)
         if _ODD_TOP.match(line):
             shape = _TOP_ARCH if line.startswith("architectures") else _TOP_WORKFLOW
             if not shape.fullmatch(line):
@@ -184,6 +221,7 @@ def _read_workflow(lines, index):
         if indent != child:
             continue
         body = line[child:]
+        _check_key(body, WORKFLOW_KEYS)
         if _ODD_CHILD.match(body):
             match = _CHILD_KEY.fullmatch(body)
             if not match:

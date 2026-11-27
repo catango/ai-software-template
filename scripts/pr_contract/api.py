@@ -163,7 +163,7 @@ class GhClient:
         return "pull_request" if "pull_request" in data else "issue"
 
     def repo_readable(self, repo):
-        """Returns when the repository can be read; raises NotFound when it is missing or not readable."""
+        """Returns when the repository can be read; raises NotFound (missing) or NotReadable (refused)."""
         target = check_repo(repo)
         parse_private(self._get(["gh", "api", f"repos/{target}"]))
 
@@ -177,9 +177,7 @@ class GhClient:
         check_path(path)
         try:
             data = self._get(["gh", "api", f"repos/{self.repo}/contents/{path}?ref={sha}"])
-        except NotReadable:
-            raise  # a refused read is not an absent file
-        except NotFound:
+        except NotFound:  # only a 404; a refused read (NotReadable) is not caught here
             return None
         return decode_contents(data)
 

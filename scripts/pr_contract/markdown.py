@@ -54,6 +54,14 @@ def has_content(text):
     return False
 
 
+def same_text(a, b):
+    """Whether two blocks of text are the same lines, ignoring blank lines, line ends, and spaces at the ends of a line. Case,
+    order, and checkbox state are compared."""
+    def lines(text):
+        return [line.strip() for line in text.replace("\r\n", "\n").replace("\r", "\n").split("\n") if line.strip()]
+    return lines(a) == lines(b)
+
+
 def _ref(match):
     return Ref(match.group("repo"), int(match.group("number")))
 

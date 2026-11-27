@@ -9,7 +9,7 @@ from datetime import datetime
 
 from . import config, markdown
 from .api import MAX_FILES
-from .errors import ApiError, ConfigError, InputError, LimitExceeded, NotFound
+from .errors import ApiError, ConfigError, InputError, LimitExceeded, NearMissKey, NotFound, NotReadable
 from .sanitize import clean
 
 PATH_CAP = 10
@@ -89,12 +89,24 @@ def branch_version(head_ref):
     return None
 
 
-def template_headings(kind, templates_dir):
+def template_sections(kind, templates_dir):
+    """{heading: text} of the template of a PR type, from the directory of the checkout that runs the script."""
     try:
         text = (templates_dir / f"{kind}.md").read_text(encoding="utf-8")
     except OSError:
         raise InputError("PR template not found") from None
-    return list(markdown.parse(text).sections)
+    return markdown.parse(text).sections
+
+
+def template_headings(kind, templates_dir):
+    return list(template_sections(kind, templates_dir))
+
+
+def hinted(message, error):
+    """The fixed message of a rule, with the misspelled key when the configuration has one (sanitized, short)."""
+    if isinstance(error, NearMissKey):
+        return f"{message} (key {clean(error.key, 40)} looks like a misspelling)"
+    return message
 
 
 class BaseConfig:
@@ -122,8 +134,8 @@ def check_operator_paths(files, parsed, base):
     or malformed key is a violation (we cannot tell what is an operator path); an explicit empty value makes the rule inactive."""
     try:
         entries = config.operator_paths(base.get())
-    except ConfigError:
-        return [Violation("PC-8", OPERATOR_KEY_MESSAGE)]
+    except ConfigError as error:
+        return [Violation("PC-8", hinted(OPERATOR_KEY_MESSAGE, error))]
     if not any(config.is_operator_path(path, entries) for path in touched(files)):
         return []
     review = parsed.sections.get(OPERATOR_REVIEW, "") if parsed is not None else ""
@@ -205,8 +217,8 @@ def evaluate(pr, client, templates_dir):
             rule = "PC-4" if kind == "design" else "PC-5"
             try:
                 roots = config.docs_roots(base.get())
-            except ConfigError:
-                violations.append(Violation(rule, DOCS_ROOTS_MESSAGE))
+            except ConfigError as error:
+                violations.append(Violation(rule, hinted(DOCS_ROOTS_MESSAGE, error)))
             else:
                 if kind == "design":
                     violations.extend(capped("PC-4", "path outside the record roots: {}", [p for p in touched(files) if not under_roots(p, roots)]))
@@ -225,12 +237,17 @@ def evaluate(pr, client, templates_dir):
 
 
 def check_sections(kind, parsed, templates_dir):
+    """PC-1. A section is filled in when it has content and is not the template's own text: the unchecked default items of a
+    Checkpoint are what the template ships, not what the author wrote. Ticking a box, or changing, adding or removing an item,
+    makes it the author's."""
     out = []
-    for heading in template_headings(kind, templates_dir):
+    for heading, shipped in template_sections(kind, templates_dir).items():
         if heading not in parsed.sections:
             out.append(Violation("PC-1", f"section missing: {clean(heading)}"))
         elif not markdown.has_content(parsed.sections[heading]):
             out.append(Violation("PC-1", f"section empty: {clean(heading)}"))
+        elif markdown.has_content(shipped) and markdown.same_text(parsed.sections[heading], shipped):
+            out.append(Violation("PC-1", f"section is the unedited template text: {clean(heading)}"))
     return out
 
 
@@ -276,13 +293,13 @@ def check_implementation(pr, parsed, branch_number, client, base):
     if foreign:
         try:
             listed = config.design_repos(base.get())
-        except ConfigError:
-            return out + [Violation("PC-3", DESIGN_REPOS_MESSAGE)]
+        except ConfigError as error:
+            return out + [Violation("PC-3", hinted(DESIGN_REPOS_MESSAGE, error))]
         if design_repo.lower() not in {entry.lower() for entry in listed}:
             return out + [Violation("PC-3", f"repository {clean(design_repo)} is not listed in design_repos")]
         try:
             client.repo_readable(design_repo)
-        except NotFound:
+        except (NotFound, NotReadable):
             return out + [Violation("PC-3", f"repository {clean(design_repo)} cannot be read")]
     where = design_repo if foreign else None
     try:
@@ -290,6 +307,8 @@ def check_implementation(pr, parsed, branch_number, client, base):
             out.append(Violation("PC-3", f"{_label(issue)} is a pull request, not an issue"))
     except NotFound:
         out.append(Violation("PC-3", f"issue {_label(issue)} not found"))
+    except NotReadable:
+        out.append(Violation("PC-3", f"issue {_label(issue)} cannot be read"))
     out.extend(check_design_pr(pr, issue.number, design.number, client, where, design_repo))
     return out
 
@@ -302,6 +321,8 @@ def check_design_pr(pr, issue, design, client, where, design_repo):
         design_pr = client.pull(design, where)
     except NotFound:
         return [Violation("PC-3", f"design PR {label} not found")]
+    except NotReadable:
+        return [Violation("PC-3", f"design PR {label} cannot be read")]
     out = []
     if not design_pr.merged:
         out.append(Violation("PC-3", f"design PR {label} is not merged"))
@@ -350,8 +371,8 @@ def check_evidence(pr, parsed, client, base=None):
     base = base or BaseConfig(client, pr.base_sha)
     try:
         candidates = [a for a in config.architectures(base.get()) if not (a.runner and a.runner_private)]
-    except ConfigError:
-        return [Violation("PC-9", "architectures in the base configuration is missing or invalid")]
+    except ConfigError as error:
+        return [Violation("PC-9", hinted("architectures in the base configuration is missing or invalid", error))]
     if not candidates:
         return []
     private = client.repo_private()

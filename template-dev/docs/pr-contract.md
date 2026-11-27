@@ -123,3 +123,14 @@ A review of the merged row found seven points. Each was checked against the code
 | 7 | One punctuation mark, or a bare checklist marker, satisfied the non-empty rule | Real for punctuation and markers; not for checklist text | List, quote and checkbox markers do not count and at least one letter or digit is needed. An item with text still counts, because the Checkpoint section of every template is a checklist by design; an untouched template checklist cannot be told from a real one |
 
 The first row of the table needed no new manifest pattern. The configuration of a generated repository now carries `docs_roots`.
+
+## Second follow-up (review of the first follow-up)
+
+| # | Finding | Verdict | Change |
+|---|---|---|---|
+| 1 | A misspelled `workflow` key (`docs_root:`) was skipped, so an absent `docs_roots` meant the default and a typo silently dropped the protection of `template-dev/docs/` | Real | A key within two edits of a policy key (or equal to one ignoring case and hyphens) is an error, `NearMissKey`, at the top level (`workflows`, `architecture`) and in `workflow`. The violation of every rule that reads the configuration names the key. Keys far from the three are the project's own and are still skipped (a project may keep `merge_method` there) |
+| 2 | `NotReadable` was a subclass of `NotFound`, so a future `except NotFound` would catch a refused read | Real (a hazard, not a bug today) | Both derive from a new `ReadError`; the handlers that mean "cannot be read" name both, the CLI catches `ReadError`; a test fails if a refused read is caught as not found |
+| 3 | A Checkpoint left exactly as the template ships it passed PC-1 | Real | Chosen: a section equal to the template's own text (blank lines and trailing spaces ignored, case, order, and box state compared) counts as not filled in, against the template of the base checkout: "section is the unedited template text". Ticking one box, or editing, adding, removing or reordering an item, makes it the author's, so a change PR that keeps the three default items and ticks them passes |
+
+The choice for 3 is a reading of "non-empty" in PC-1, not a new rule: a draft PR opened from `scripts/pr-body` with the other
+sections filled in but the checkpoint untouched is flagged until the first item is ticked.
