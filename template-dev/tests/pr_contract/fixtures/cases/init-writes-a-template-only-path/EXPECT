@@ -1,0 +1,4 @@
+exit 1
+pr-contract: PR #10 (type: init)
+FAIL TC-2: written path is not seeded: template-dev/new.md
+pr-contract: 1 violation

@@ -1,0 +1,4 @@
+exit 1
+pr-contract: PR #10 (type: change)
+FAIL PC-8: operator_paths missing or invalid in the base configuration
+pr-contract: 1 violation

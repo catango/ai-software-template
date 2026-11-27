@@ -1,0 +1,4 @@
+exit 1
+pr-contract: PR #10 (type: change)
+FAIL PC-9: no evidence line for architecture arch-a
+pr-contract: 1 violation

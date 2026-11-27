@@ -1,0 +1,6 @@
+schema_version = 1
+version = "1.0.0"
+[classes]
+owned = ["scripts/", ".template/manifest.toml", ".github/workflows/ci.yml", "tests/quality-gate/"]
+seeded = ["config/project.yaml", "README.md", ".template/state.toml", ".template/overrides.toml", "docs/PLATFORM.md"]
+template-only = ["template-dev/", ".github/workflows/template-ci.yml"]

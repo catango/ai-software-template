@@ -1,0 +1,4 @@
+exit 1
+pr-contract: PR #10 (type: template-sync)
+FAIL TC-1: .template/overrides.toml is changed
+pr-contract: 1 violation

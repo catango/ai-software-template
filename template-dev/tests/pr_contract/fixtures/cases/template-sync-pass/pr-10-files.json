@@ -1,0 +1,22 @@
+[
+ {
+  "filename": "scripts/x.py",
+  "status": "modified"
+ },
+ {
+  "filename": "scripts/old.py",
+  "status": "removed"
+ },
+ {
+  "filename": "scripts2/new.py",
+  "status": "added"
+ },
+ {
+  "filename": ".template/state.toml",
+  "status": "modified"
+ },
+ {
+  "filename": ".template/manifest.toml",
+  "status": "modified"
+ }
+]

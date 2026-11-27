@@ -1,0 +1,4 @@
+exit 1
+pr-contract: PR #10 (type: implementation)
+FAIL PC-3: repository example-owner/design-records cannot be read
+pr-contract: 1 violation

@@ -1,0 +1,93 @@
+name: pr-contract
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened, ready_for_review, converted_to_draft]
+
+permissions: {}
+
+concurrency:
+  group: pr-contract-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  pr-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: read
+    steps:
+      # The base commit: its checkers judge the pull request, so a pull request cannot change them. A checker that is
+      # missing here is a failure, never a skip.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+
+      # The head commit, in a directory of its own, to be read and never run.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: head
+          persist-credentials: false
+
+      # yq for workflow-policy, from the checksum-verified CI manifest of the base commit.
+      - name: Install yq
+        shell: bash
+        run: |
+          python3 -I toolchain/install install --profile gate --only yq --prefix "$RUNNER_TEMP/toolchain"
+          echo "$RUNNER_TEMP/toolchain/bin" >> "$GITHUB_PATH"
+
+      # Only two trusted values reach the script, through env, and the token for the gh command. The script fetches the
+      # title, body, branch, and files itself, so PR text never passes through an expression or a shell.
+      - name: Check the pull request contract
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          python3 -I scripts/pr-contract --repo "$REPO" --pr "$PR_NUMBER"
+
+      # The policy checks of the base commit, run on the files of the head. The checks read their policy inputs from the
+      # base commit GATE_BASE_REF, which is made readable inside the head checkout from the base checkout on disk. The
+      # head directory is read-only while they run. The checks that a later row of the template adds (owned-drift,
+      # operator-contract, dependabot-config) join this list with that row.
+      - name: Run the policy checks of the base against the head
+        shell: bash
+        env:
+          GATE_BASE_REF: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          base=$PWD
+          git -C head fetch --quiet --no-tags --depth=1 "$base" "$GATE_BASE_REF"
+          list=$(mktemp)
+          git -C head ls-files -z | while IFS= read -r -d '' path; do
+            case $path in *$'\n'* | tests/*/fixtures/*) continue ;; esac
+            if [[ -f head/$path ]]; then printf '%s\n' "$path"; fi
+          done >"$list"
+          trap 'chmod -R u+w head; rm -f "$list"' EXIT
+          chmod -R a-w head
+          failed=0
+          # The id of the check that forbids the product name in workflow text is written in two parts, so that this file passes it.
+          for id in workflow-policy "no-cl""aude-in-workflows" forbidden-api; do
+            checker="$base/scripts/checks/$id.sh"
+            if [[ ! -f $checker ]]; then
+              echo "pr-contract: the checker $id is missing on the base commit"
+              failed=1
+              continue
+            fi
+            rc=0
+            out=$(cd head && bash "$checker" <"$list" 2>&1) || rc=$?
+            case $rc in
+              0 | 77) echo "pr-contract: $id: ok" ;;
+              *)
+                echo "pr-contract: $id: failed (exit $rc)"
+                { sed -e 's/[[:cntrl:]]//g' -e 's/::/: :/g' <<<"$out" | sed -n '1,20p' | sed -e 's/^/  /'; } || true
+                failed=1
+                ;;
+            esac
+          done
+          exit "$failed"

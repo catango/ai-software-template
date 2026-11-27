@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Prints the PR template for one type, unchanged (including the PC-2 marker), to stdout.
+# Usage: scripts/pr-body design|implementation|change|template-sync|init
+set -euo pipefail
+
+root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
+if [[ $# -ne 1 ]]; then
+  echo "usage: scripts/pr-body design|implementation|change|template-sync|init" >&2
+  exit 2
+fi
+case $1 in
+  design | implementation | change | template-sync | init) ;;
+  *)
+    echo "pr-body: unknown type (expected design, implementation, change, template-sync, or init)" >&2
+    exit 2
+    ;;
+esac
+cat -- "$root/.github/PULL_REQUEST_TEMPLATE/$1.md"

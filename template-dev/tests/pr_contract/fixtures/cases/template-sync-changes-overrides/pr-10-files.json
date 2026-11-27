@@ -1,0 +1,10 @@
+[
+ {
+  "filename": ".template/overrides.toml",
+  "status": "modified"
+ },
+ {
+  "filename": ".template/state.toml",
+  "status": "modified"
+ }
+]

@@ -1,0 +1,10 @@
+[
+ {
+  "filename": ".github/workflows/ci.yml",
+  "status": "modified"
+ },
+ {
+  "filename": ".template/state.toml",
+  "status": "modified"
+ }
+]

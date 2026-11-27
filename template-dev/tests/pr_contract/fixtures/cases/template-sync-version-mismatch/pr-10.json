@@ -1,0 +1,20 @@
+{
+ "number": 10,
+ "title": "A title",
+ "body": "<!-- PR type: template-sync. Branch: template-sync/v<MAJOR>.<MINOR>.<PATCH>. Rule PC-1 requires every section below, non-empty. -->\n## Summary\nFilled in for the test.\n\n## Versions\nFilled in for the test.\n\n## Changed files by class\nFilled in for the test.\n\n## Overrides honoured\nFilled in for the test.\n\n## Drift limited to uses lines\nFilled in for the test.\n\n## Release notes\nFilled in for the test.\n\n## Checkpoint\n- [ ] item\n",
+ "state": "open",
+ "draft": true,
+ "merged": false,
+ "user": {
+  "login": "example-machine"
+ },
+ "head": {
+  "ref": "template-sync/v1.3.0",
+  "sha": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+ },
+ "base": {
+  "ref": "main",
+  "sha": "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2"
+ },
+ "changed_files": 1
+}

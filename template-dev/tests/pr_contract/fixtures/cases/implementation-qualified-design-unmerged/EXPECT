@@ -1,0 +1,4 @@
+exit 1
+pr-contract: PR #10 (type: implementation)
+FAIL PC-3: design PR example-owner/design-records#40 is not merged
+pr-contract: 1 violation

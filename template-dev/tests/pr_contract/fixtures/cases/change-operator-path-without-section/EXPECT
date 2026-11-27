@@ -1,0 +1,4 @@
+exit 1
+pr-contract: PR #10 (type: change)
+FAIL PC-8: operator change without a non-empty 'Operator script review' section
+pr-contract: 1 violation
