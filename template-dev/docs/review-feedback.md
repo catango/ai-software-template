@@ -108,9 +108,15 @@ The manifest needed no entry: `scripts/review-threads` was owned already, and th
 - **`scripts/review-threads reply <thread-id> <commit>`** validates the thread ID (`PRRT_` and 1 to 90 characters of letters, digits,
   `_`, `-`) and the commit (40 lowercase hexadecimal characters), asks GitHub which pull request the thread belongs to (it must be
   this repository), runs the same checks and the same filter as the listing, refuses a thread that the listing would not print
-  (on any page, resolved or not), refuses a commit that is not the head of the pull request or one of its ancestors (the compare
-  status `identical` or `ahead`), and then posts one reply with the GraphQL mutation `addPullRequestReviewThreadReply`, with the fixed text
-  `Addressed in commit <sha>.` and no text from GitHub. It passes no review ID, so no review is created.
+  (on any page, resolved or not), refuses a commit that is not one of the pull request's own commits (the REST list of its commits,
+  up to three pages of 100: a commit already on the base branch is an ancestor of the head too, but is not in that list, so "Addressed in
+  commit <an old base commit>" cannot be posted), and then posts one reply with the GraphQL mutation `addPullRequestReviewThreadReply`,
+  with the fixed text `Addressed in commit <sha>.` and no text from GitHub. It passes no review ID, so no review is created.
+  **Idempotent:** before the mutation it looks in the thread's comments (the ones already fetched) for a comment by the machine account
+  (a user, matched by login) whose text is exactly that fixed text; if there is one it posts nothing, prints `already replied`, and
+  ends 0, so a retry after a mutation whose answer was lost does not post a second reply. The same text by another account, a reply
+  naming another commit, or a reply with extra text does not count. A thread with more than 50 comments may hold the earlier reply
+  beyond what was fetched; then the check cannot see it and a duplicate is possible.
 - **What it never does.** It resolves nothing, submits no review, dismisses nothing, and merges nothing. Static tests scan the wrapper,
   `review.py`, and `client.py` for those operations (GraphQL names, REST paths, `gh pr` groups), assert that `review.py` and the
   wrapper do not even name them in a docstring, and assert that the writes of `client.py` are exactly four: the label add, the body PATCH,
@@ -145,11 +151,17 @@ executable, `--fixture` and a test that names it).
 - **Real GitHub.** Nothing ran against a real review. The fixtures are GraphQL answers written from the schema, not recorded ones.
   The things only a real pull request can show: that the queries are accepted as written (`userContentEdits(first: 20)` under three
   nested connections, the inline fragments on `User` and `Bot`); that `databaseId` is the number the platform preset stores as
-  `approver_id`; that `addPullRequestReviewThreadReply` without a review ID posts a visible reply at once; that the compare status
-  of `commit...head` is `ahead` or `identical` for a commit that was pushed; what `editor` and `userContentEdits` hold after an edit
+  `approver_id`; that `addPullRequestReviewThreadReply` without a review ID posts a visible reply at once; that the commits list of a pull request
+  holds a commit that was just pushed; **that GraphQL cursors have the alphabet the script accepts** (see below); what `editor` and `userContentEdits` hold after an edit
   by the machine account in the GitHub web interface; and what a revision shows after its content was deleted. The run waits for row
   9 and the user. The reply mutation was chosen over the REST reply endpoint because it takes the thread ID the listing prints;
   the REST endpoint needs a comment number and is the fallback if the mutation misbehaves.
+- **The cursor alphabet.** GraphQL cursors are standard base64 of a binary payload and can contain `+`, `/`, and `=`. The script
+  accepts `[A-Za-z0-9+/=_-]` with 4 to 200 characters (the first version took the node-ID alphabet, which has no `+` or `/`, so page 2
+  of a pull request with more than 50 threads or reviews could have failed with exit 3). The cursor goes to `gh` as the value of one
+  `-f after=<cursor>` argument, never through a shell, and tests pass cursors with `+`, `/`, `=` on both queries and check they are
+  sent exactly as given. The alphabet and the length are **not verified against a real answer**: look at a real cursor in the row 9 run.
+  A page that announces a next page without a cursor is refused.
 - **The REST statement** of the edited-comment section is not from a source read here (see above).
 - **A race.** An item edited between the listing and the work, or between the listing and `reply`, is not seen by the script. The
   reply runs the filter again, so it refuses a thread whose item became edited by another account in between; the work done on the
@@ -169,4 +181,4 @@ executable, `--fixture` and a test that names it).
    names the key.
 4. **Reply on a resolved thread** is allowed (the listing prints it). The Skill replies only for threads it addressed.
 5. **A pull request is judged by its author's login** (`machine_login`); no ID of the machine account is configured.
-6. **`reply` names the full SHA** and refuses a commit that is not on the pull request head, so the Skill must push first.
+6. **`reply` names the full SHA** and refuses a commit that is not one of the pull request's own commits, so the Skill must push first.
