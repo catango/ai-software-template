@@ -1,0 +1,123 @@
+# Schema of the configuration passed to `scripts/initialize-project --config <file>`.
+#
+# The configuration is TOML and the only input of initialize-project: every platform
+# value comes from it, and nothing is inherited from the template. The validator is
+# scripts/lib/template_config.py. Unknown keys, missing required keys, and values of the
+# wrong type or form are refused before anything is written.
+#
+# Field types
+#   string       "pattern" (regular expression), "max_length", "kind"
+#   integer      "min"
+#   enum         "values"
+#   string-list  "item_pattern", "max_length" and "kind" (both apply to each item)
+#   table-list   "items" (fields of each table), "min_items", "unique" (a key whose values differ)
+# A field is optional unless "required" is true. "default" applies when it is absent.
+# "kind" = "relative-path" means: not absolute, no empty, "." or ".." segment, no backslash.
+# No string may contain a control character.
+#
+# `visibility`, the `preset` paths, and `post_init_actions` are used while generating and
+# are not copied into config/project.yaml.
+
+schema_version = 1
+
+[[field]]
+key = "project.name"
+type = "string"
+required = true
+pattern = '^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$'
+description = "Repository name of the generated project."
+
+[[field]]
+key = "project.description"
+type = "string"
+default = ""
+max_length = 200
+description = "One line describing the project. No line breaks."
+
+[[field]]
+key = "github.owner"
+type = "string"
+required = true
+pattern = '^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$'
+description = "Account or organisation that owns the repository."
+
+[[field]]
+key = "github.approver_login"
+type = "string"
+required = true
+pattern = '^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$'
+description = "Login of the approver. Only this account's review comments count as instructions."
+
+[[field]]
+key = "github.approver_id"
+type = "integer"
+required = true
+min = 1
+description = "Immutable numeric account ID of the approver. Reviews are matched by it."
+
+[[field]]
+key = "github.machine_login"
+type = "string"
+required = true
+pattern = '^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$'
+description = "Login of the machine account that Claude Code works as. Must differ from the approver."
+
+[[field]]
+key = "github.visibility"
+type = "enum"
+required = true
+values = ["public", "private"]
+description = "Visibility of the generated repository. Decides which rulesets are printed."
+
+[[field]]
+key = "template.source"
+type = "string"
+required = true
+pattern = '^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})/[A-Za-z0-9._-]{1,100}$'
+description = "Template source repository as owner/name. template-sync reads tags from it."
+
+[[field]]
+key = "workflow.design_repos"
+type = "string-list"
+required = true
+item_pattern = '^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})/[A-Za-z0-9._-]{1,100}$'
+description = "Repositories (owner/name) whose merged design pull requests an implementation may reference. May be empty."
+
+[[field]]
+key = "workflow.operator_paths"
+type = "string-list"
+required = true
+kind = "relative-path"
+description = "Paths whose change needs the operator script review section. An empty list switches that rule off."
+
+[[field]]
+key = "architectures"
+type = "table-list"
+required = true
+min_items = 1
+unique = "name"
+description = "Architectures of the CI matrix. An empty runner means no runner exists for that architecture."
+items = [
+  { key = "name", type = "string", required = true, pattern = '^[a-z0-9][a-z0-9_-]{0,19}$' },
+  { key = "runner", type = "string", required = true, pattern = '^[A-Za-z0-9._-]{0,60}$' },
+  { key = "runner_private", type = "string", required = true, pattern = '^[A-Za-z0-9._-]{0,60}$' },
+]
+
+[[field]]
+key = "preset.platform_doc"
+type = "string"
+kind = "relative-path"
+description = "Path, relative to the configuration file, of the file written to docs/PLATFORM.md."
+
+[[field]]
+key = "preset.deny_platform"
+type = "string"
+kind = "relative-path"
+description = "Path, relative to the configuration file, of the file written to .claude/deny.platform.txt."
+
+[[field]]
+key = "post_init_actions"
+type = "string-list"
+default = []
+max_length = 300
+description = "Steps printed after generation for the approver. Nothing is performed."

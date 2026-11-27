@@ -1,0 +1,155 @@
+# One representative path per row of the template layout (design section 3) with its
+# expected class. The `manifest` test checks that each path matches exactly that class,
+# so a manifest pattern that would put a file added later into two classes fails now.
+
+[[path]]
+path = "CLAUDE.md"
+class = "owned"
+
+[[path]]
+path = ".template/manifest.toml"
+class = "owned"
+
+[[path]]
+path = ".template/config.schema.toml"
+class = "owned"
+
+[[path]]
+path = ".template/budgets.toml"
+class = "owned"
+
+[[path]]
+path = ".template/state.toml"
+class = "seeded"
+
+[[path]]
+path = ".template/overrides.toml"
+class = "seeded"
+
+[[path]]
+path = ".claude/settings.json"
+class = "owned"
+
+[[path]]
+path = ".claude/required-deny.txt"
+class = "owned"
+
+[[path]]
+path = ".claude/deny.platform.txt"
+class = "seeded"
+
+[[path]]
+path = ".claude/rules/public-repo.md"
+class = "owned"
+
+[[path]]
+path = ".claude/skills/resume-work/SKILL.md"
+class = "owned"
+
+[[path]]
+path = ".github/ISSUE_TEMPLATE/cr.md"
+class = "owned"
+
+[[path]]
+path = ".github/PULL_REQUEST_TEMPLATE/init.md"
+class = "owned"
+
+[[path]]
+path = ".github/workflows/ci.yml"
+class = "owned"
+
+[[path]]
+path = ".github/workflows/pr-contract.yml"
+class = "owned"
+
+[[path]]
+path = ".github/workflows/template-ci.yml"
+class = "template-only"
+
+[[path]]
+path = ".github/dependabot.yml"
+class = "seeded"
+
+[[path]]
+path = ".github/CODEOWNERS"
+class = "seeded"
+
+[[path]]
+path = "config/project.yaml"
+class = "seeded"
+
+[[path]]
+path = "scripts/quality-gate.sh"
+class = "owned"
+
+[[path]]
+path = "scripts/checks/claude-md.sh"
+class = "owned"
+
+[[path]]
+path = "scripts/checks.d/project-check.sh"
+class = "seeded"
+
+[[path]]
+path = "scripts/lib/operator_guard.py"
+class = "owned"
+
+[[path]]
+path = "scripts/pr_contract/rules.py"
+class = "owned"
+
+[[path]]
+path = "scripts/initialize-project"
+class = "owned"
+
+[[path]]
+path = "scripts/template-sync"
+class = "owned"
+
+[[path]]
+path = "toolchain/ci-manifest.toml"
+class = "owned"
+
+[[path]]
+path = "docs/PLATFORM.md"
+class = "seeded"
+
+[[path]]
+path = "docs/PROJECT.md"
+class = "seeded"
+
+[[path]]
+path = "docs/README.md"
+class = "seeded"
+
+[[path]]
+path = "docs/adr/_template.md"
+class = "owned"
+
+[[path]]
+path = "docs/cr/_template/design.md"
+class = "owned"
+
+[[path]]
+path = "template-dev/README.md"
+class = "template-only"
+
+[[path]]
+path = "template-dev/docs/cr/CR-1/design.md"
+class = "template-only"
+
+[[path]]
+path = "template-dev/provenance.toml"
+class = "template-only"
+
+[[path]]
+path = "README.md"
+class = "seeded"
+
+[[path]]
+path = "LICENSE"
+class = "seeded"
+
+[[path]]
+path = "SECURITY.md"
+class = "seeded"

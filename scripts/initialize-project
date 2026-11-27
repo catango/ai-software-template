@@ -1,0 +1,268 @@
+#!/usr/bin/env python3
+"""Turn a copy of the template into a project repository.
+
+    scripts/initialize-project --config FILE [--dry-run] [--root DIR] [--template-commit SHA]
+
+Every value comes from the configuration file (schema: .template/config.schema.toml).
+Nothing is inherited from the template's own files. The script
+
+  1. refuses a tree that already has .template/state.toml, or a file without a class;
+  2. validates the configuration and the preset files it names;
+  3. removes every `template-only` path;
+  4. writes the seeded files: README.md, docs/README.md, config/project.yaml,
+     docs/PLATFORM.md, .claude/deny.platform.txt, and .template/state.toml;
+  5. prints the configured post-init actions and the rulesets to apply by hand.
+
+It works on local files only. It creates no label, ruleset, repository, collaborator, or
+setting. --dry-run prints the plan and writes nothing.
+
+Exit status: 0 done, 1 refused, 2 usage or configuration error.
+"""
+
+import argparse
+import hashlib
+import json
+import re
+import sys
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE / "lib"))
+
+import template_config  # noqa: E402
+import template_manifest  # noqa: E402
+
+STATE = ".template/state.toml"
+NEUTRAL_PLATFORM_DOC = (
+    "# Platform\n\n"
+    "This project has no platform-specific rules.\n\n"
+    "A platform preset replaces this file with where the project runs, the constraints of its\n"
+    "platform, and the platform-specific Never rules.\n"
+)
+DOCS_INDEX = (
+    "# Documentation\n\n"
+    "| Path | Content |\n|---|---|\n"
+    "| `PLATFORM.md` | Where the project runs and the constraints of its platform |\n"
+    "| `cr/` | Change requests, one directory per issue number of this repository |\n"
+    "| `adr/` | Architecture decision records, numbered in this repository |\n"
+)
+# Identifier of the GitHub Actions application as the source of a required status check.
+ACTIONS_APP_ID = 15368
+
+
+def fail(message, code=1):
+    print(f"initialize-project: {message}", file=sys.stderr)
+    return code
+
+
+def readme(project):
+    lines = [f"# {project['name']}\n", "\n"]
+    if project["description"]:
+        lines += [project["description"] + "\n", "\n"]
+    lines.append("Documentation index: [docs/README.md](docs/README.md).\n")
+    return "".join(lines)
+
+
+def toml_state(config, version, commit, owned_hashes):
+    out = [
+        "# Written by scripts/initialize-project and by template-sync only. Do not edit by hand.\n",
+        "schema_version = 1\n\n",
+        "[template]\n",
+        f"source = {json.dumps(config['template']['source'])}\n",
+        f"version = {json.dumps(version)}\n",
+    ]
+    if commit:
+        out.append(f"commit = {json.dumps(commit)}\n")
+    out.append("\n[owned]\n")
+    for rel in sorted(owned_hashes):
+        out.append(f"{json.dumps(rel)} = {json.dumps(owned_hashes[rel])}\n")
+    out.append("\n[overrides]\n")
+    return "".join(out)
+
+
+def rulesets_text(config):
+    """The rulesets of the security baseline, as Console steps and a JSON body."""
+    if config["github"]["visibility"] == "private":
+        return (
+            "Rulesets are not available for a private repository on GitHub Free.\n"
+            "Branch protection is procedural there: the required checks `pr-contract` and\n"
+            "`quality-gate` are advisory, so confirm both on the head of each change before the\n"
+            "approver merges, and record the accepted risk.\n"
+        )
+    repo = f"{config['github']['owner']}/{config['project']['name']}"
+    main = {
+        "name": "main-protection",
+        "target": "branch",
+        "enforcement": "active",
+        "bypass_actors": [],
+        "conditions": {"ref_name": {"include": ["~DEFAULT_BRANCH"], "exclude": []}},
+        "rules": [
+            {"type": "pull_request", "parameters": {
+                "required_approving_review_count": 1,
+                "dismiss_stale_reviews_on_push": True,
+                "require_code_owner_review": True,
+                "require_last_push_approval": False,
+                "required_review_thread_resolution": False,
+            }},
+            {"type": "required_status_checks", "parameters": {
+                "strict_required_status_checks_policy": False,
+                "required_status_checks": [
+                    {"context": "pr-contract", "integration_id": ACTIONS_APP_ID},
+                    {"context": "quality-gate", "integration_id": ACTIONS_APP_ID},
+                ],
+            }},
+        ],
+    }
+    tags = {
+        "name": "release-tags",
+        "target": "tag",
+        "enforcement": "active",
+        "bypass_actors": [{"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "always"}],
+        "conditions": {"ref_name": {"include": ["refs/tags/v*"], "exclude": []}},
+        "rules": [{"type": "creation"}, {"type": "update"}, {"type": "deletion"}],
+    }
+    return (
+        f"Rulesets to apply by hand in {repo} (this script applies nothing):\n\n"
+        "1. main-protection: Settings > Rules > Rulesets > New branch ruleset. Target the default\n"
+        "   branch, no bypass, require a pull request with code-owner review, and require the\n"
+        "   status checks `pr-contract` and `quality-gate`. REST body for\n"
+        f"   POST /repos/{repo}/rulesets:\n\n"
+        + indent(json.dumps(main, indent=2)) + "\n\n"
+        "2. release-tags: Settings > Rules > Rulesets > New tag ruleset. Target `v*` tags and let\n"
+        "   only the repository administrator create, update, or delete them. REST body for the\n"
+        "   same endpoint:\n\n"
+        + indent(json.dumps(tags, indent=2)) + "\n"
+    )
+
+
+def indent(text):
+    return "".join("   " + line + "\n" for line in text.splitlines()).rstrip("\n")
+
+
+def safe_write(root, rel, data):
+    """Write `data` to root/rel. Replaces a file or a symbolic link; stays inside root."""
+    target = root / rel
+    parent = target.parent
+    parent.mkdir(parents=True, exist_ok=True)
+    if not parent.resolve().is_relative_to(root):
+        raise OSError(f"{rel}: parent directory leaves the repository")
+    if target.is_symlink() or target.exists():
+        target.unlink()
+    target.write_bytes(data)
+
+
+def prune_empty_dirs(root, removed):
+    """Remove the directories that the removed files left empty, deepest first."""
+    dirs = set()
+    for rel in removed:
+        parent = (root / rel).parent
+        while parent != root:
+            dirs.add(parent)
+            parent = parent.parent
+    for directory in sorted(dirs, key=lambda d: len(d.parts), reverse=True):
+        try:
+            directory.rmdir()
+        except OSError:
+            pass
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(
+        prog="initialize-project",
+        description="Write the seeded files from a configuration and remove template-only paths.",
+    )
+    parser.add_argument("--config", required=True, help="configuration file (TOML)")
+    parser.add_argument("--root", help="tree to initialise (default: the tree this script is in)")
+    parser.add_argument("--dry-run", action="store_true", help="print the plan, write nothing")
+    parser.add_argument("--template-commit", help="40-hex commit of the template to record")
+    args = parser.parse_args(argv)
+
+    root = Path(args.root).resolve() if args.root else HERE.parent
+    commit = args.template_commit
+    if commit is not None and not re.fullmatch(r"[0-9a-f]{40}", commit):
+        return fail("--template-commit must be 40 lowercase hex digits", 2)
+
+    manifest_path = root / ".template" / "manifest.toml"
+    schema_path = root / ".template" / "config.schema.toml"
+    if not manifest_path.is_file():
+        return fail(f"{root} has no .template/manifest.toml (manifest); is it a template tree?")
+    if (root / STATE).exists() or (root / STATE).is_symlink():
+        return fail(f"{STATE} exists: this repository is already initialised")
+    try:
+        manifest = template_manifest.load_manifest(manifest_path)
+    except template_manifest.ManifestError as exc:
+        return fail(f"manifest: {exc}")
+    if not schema_path.is_file():
+        return fail("the tree has no .template/config.schema.toml")
+
+    try:
+        fields = template_config.load_schema(schema_path)
+        config, presets = template_config.load_config(args.config, fields)
+    except template_config.ConfigError as exc:
+        for error in exc.errors:
+            print(f"initialize-project: configuration: {error}", file=sys.stderr)
+        return 2
+
+    paths = template_manifest.walk_files(root)
+    report = template_manifest.check_paths(manifest, paths)
+    if report["unclassed"] or report["multiple"]:
+        for path in report["unclassed"]:
+            print(f"initialize-project: no class in the manifest: {path}", file=sys.stderr)
+        for path, classes in report["multiple"]:
+            print(f"initialize-project: more than one class ({', '.join(classes)}): {path}",
+                  file=sys.stderr)
+        return fail("every file needs exactly one class; nothing was changed")
+
+    template_only = [p for p in paths if manifest.classify(p) == ["template-only"]]
+    platform_doc = (presets["platform_doc"].read_bytes() if presets["platform_doc"]
+                    else NEUTRAL_PLATFORM_DOC.encode())
+    deny_platform = presets["deny_platform"].read_bytes() if presets["deny_platform"] else b""
+    seeded = {
+        "README.md": readme(config["project"]).encode(),
+        "docs/README.md": DOCS_INDEX.encode(),
+        "config/project.yaml": template_config.project_yaml(config).encode(),
+        "docs/PLATFORM.md": platform_doc,
+        ".claude/deny.platform.txt": deny_platform,
+    }
+
+    if args.dry_run:
+        print("Dry run: nothing is written.")
+        print(f"Would remove {len(template_only)} template-only file(s):")
+        for rel in template_only:
+            print(f"  remove {rel}")
+        print("Would write the seeded files:")
+        for rel in [*seeded, STATE]:
+            print(f"  write  {rel}")
+    else:
+        try:
+            for rel in template_only:
+                (root / rel).unlink()
+            prune_empty_dirs(root, template_only)
+            for rel, data in seeded.items():
+                safe_write(root, rel, data)
+            owned = {
+                rel: hashlib.sha256((root / rel).read_bytes()).hexdigest()
+                for rel in template_manifest.walk_files(root)
+                if manifest.classify(rel) == ["owned"]
+            }
+            state = toml_state(config, manifest.version, commit, owned)
+            safe_write(root, STATE, state.encode())
+        except OSError as exc:
+            return fail(f"write failed: {exc}")
+        print(f"Removed {len(template_only)} template-only file(s) and wrote "
+              f"{len(seeded) + 1} seeded file(s).")
+
+    actions = config["post_init_actions"]
+    print("\nPost-init actions (from the configuration; nothing is performed):")
+    if actions:
+        for number, action in enumerate(actions, start=1):
+            print(f"  {number}. {action}")
+    else:
+        print("  none configured")
+    print()
+    print(rulesets_text(config), end="")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

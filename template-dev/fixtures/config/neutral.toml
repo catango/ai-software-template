@@ -1,0 +1,25 @@
+# Neutral configuration: one architecture, no operator paths, no preset files.
+schema_version = 1
+
+[project]
+name = "sample-app"
+description = "Sample application generated from the template."
+
+[github]
+owner = "example-owner"
+approver_login = "example-approver"
+approver_id = 1000001
+machine_login = "example-machine"
+visibility = "public"
+
+[template]
+source = "example-owner/software-template"
+
+[workflow]
+design_repos = []
+operator_paths = []
+
+[[architectures]]
+name = "arch-a"
+runner = "runner-a"
+runner_private = "runner-a"

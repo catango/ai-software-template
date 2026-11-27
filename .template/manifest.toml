@@ -1,0 +1,79 @@
+# File classes of the template payload. The repository root is the payload.
+#
+#   owned          template-owned; template-sync overwrites it
+#   seeded         written once by scripts/initialize-project, then project-owned
+#   template-only  used to develop the template; removed by scripts/initialize-project
+#
+# Every tracked file must match exactly one pattern in exactly one class. A file that
+# matches nothing, or patterns of two classes, fails the `manifest` test.
+#
+# Pattern syntax (matched against the repository-relative path, "/" separated):
+#   path/to/file   exactly this path
+#   dir/           every path below dir/
+#   *  ?           inside one path segment ("*" never crosses "/")
+#   **             across segments, as a whole segment ("a/**/b", "a/**")
+#
+# This file holds no provenance and names no other repository.
+
+schema_version = 1
+
+# Template release. Set when a release tag is created; never edited by sync.
+version = "0.0.0"
+
+[classes]
+owned = [
+  ".template/manifest.toml",
+  ".template/config.schema.toml",
+  ".template/budgets.toml",
+  ".claude/settings.json",
+  ".claude/required-deny.txt",
+  ".claude/rules/*.md",
+  ".claude/skills/*/SKILL.md",
+  ".github/ISSUE_TEMPLATE/cr.md",
+  ".github/PULL_REQUEST_TEMPLATE/design.md",
+  ".github/PULL_REQUEST_TEMPLATE/implementation.md",
+  ".github/PULL_REQUEST_TEMPLATE/change.md",
+  ".github/PULL_REQUEST_TEMPLATE/template-sync.md",
+  ".github/PULL_REQUEST_TEMPLATE/init.md",
+  ".github/workflows/ci.yml",
+  ".github/workflows/pr-contract.yml",
+  "CLAUDE.md",
+  "scripts/quality-gate.sh",
+  "scripts/gate-evidence",
+  "scripts/checks/",
+  "scripts/lib/",
+  "scripts/pr-contract",
+  "scripts/pr_contract/",
+  "scripts/pr-body",
+  "scripts/pr-checkpoint",
+  "scripts/review-threads",
+  "scripts/cr-context",
+  "scripts/cr-criteria",
+  "scripts/new-cr",
+  "scripts/initialize-project",
+  "scripts/template-sync",
+  "toolchain/",
+  "docs/adr/_template.md",
+  "docs/cr/_template/",
+]
+
+seeded = [
+  ".template/state.toml",
+  ".template/overrides.toml",
+  ".claude/deny.platform.txt",
+  ".github/CODEOWNERS",
+  ".github/dependabot.yml",
+  "config/project.yaml",
+  "scripts/checks.d/",
+  "docs/PLATFORM.md",
+  "docs/PROJECT.md",
+  "docs/README.md",
+  "LICENSE",
+  "README.md",
+  "SECURITY.md",
+]
+
+template-only = [
+  ".github/workflows/template-ci.yml",
+  "template-dev/",
+]
