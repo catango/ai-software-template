@@ -19,7 +19,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "..
 
 from template_sync import overrides as overrides_module  # noqa: E402
 from template_sync import state as state_module  # noqa: E402
-from template_sync import uses_drift  # noqa: E402
+from template_sync import uses_drift, versions  # noqa: E402
+import template_manifest  # noqa: E402
 
 STATE = ".template/state.toml"
 OVERRIDES = ".template/overrides.toml"
@@ -119,7 +120,7 @@ def run(root, base, base_unreadable, head_ref):
 
     if base and head_text != base_text:
         match = SYNC_BRANCH.fullmatch(head_ref or "")
-        if match and exempt_sync(root, head_text, match.group(1), at_commit(root, base, OVERRIDES), tree_file(root, OVERRIDES), entries, findings):
+        if match and exempt_sync(root, head_text, match.group(1), policy, at_commit(root, base, OVERRIDES), tree_file(root, OVERRIDES), entries, findings):
             return findings
 
     for path in sorted(policy.overrides):
@@ -159,8 +160,21 @@ def uses_only(root, path, data, recorded, start):
         return False
 
 
-def exempt_sync(root, head_text, branch_version, base_overrides_text, head_overrides_text, entries, findings):
-    """The exemption of a template-sync pull request. True when it holds; otherwise findings say why and the normal rules go on."""
+def seeded_in_head(root, path):
+    """Whether the manifest of the tree classes `path` as seeded: a release may turn an owned file into a seeded one, which then stays."""
+    text = tree_file(root, ".template/manifest.toml")
+    try:
+        return text is not None and template_manifest.parse_manifest(text.decode("utf-8")).classify(path) == ["seeded"]
+    except (template_manifest.ManifestError, UnicodeDecodeError):
+        return False
+
+
+def exempt_sync(root, head_text, branch_version, base, base_overrides_text, head_overrides_text, entries, findings):
+    """The exemption of a template-sync pull request. True when it holds; otherwise findings say why and the normal rules go on.
+    It holds when the state records the version of the branch and a version greater than the base's, the files match the hashes the
+    state records, overrides.toml is unchanged, and every path that the base state recorded and the head state no longer lists is
+    gone from the tree (a real removal), recorded as an override that has an entry, or seeded in the head manifest. No check can tell
+    that the content equals the tag: that stays with the review of the pull request."""
     try:
         head = parse_state(head_text)
     except (state_module.StateError, UnicodeDecodeError) as error:
@@ -169,6 +183,14 @@ def exempt_sync(root, head_text, branch_version, base_overrides_text, head_overr
     held = True
     if head.version != branch_version:
         findings.append(f"{STATE}:1: a template-sync pull request must record the version of its branch ({branch_version})")
+        held = False
+    if versions.parse_version(head.version) <= versions.parse_version(base.version):
+        findings.append(f"{STATE}:1: a template-sync pull request must record a version greater than the base's ({base.version})")
+        held = False
+    for path in sorted(set(base.owned) - set(head.owned)):
+        if path in head.overrides or not os.path.lexists(os.path.join(root, path)) or seeded_in_head(root, path):
+            continue
+        findings.append(f"{path}:1: dropped from [owned] of {STATE} but still present")
         held = False
     if base_overrides_text != head_overrides_text:
         findings.append(f"{OVERRIDES}:1: a template-sync pull request must not change {OVERRIDES}")

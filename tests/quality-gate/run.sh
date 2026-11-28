@@ -1430,6 +1430,12 @@ test_owned_drift() {
   base=$(od_head "$repo")
   od_pass "a sync PR may keep a file that is recorded as an override and dropped from [owned]" "$repo" "$base" template-sync/v1.1.0
 
+  repo=$(od_repo)
+  printf 'schema_version = 1\nversion = "1.1.0"\n\n[classes]\nowned = [".github/"]\nseeded = [".claude/rules/example.md"]\ntemplate-only = []\n' >"$repo/.template/manifest.toml"
+  OD_OWNED=".github/workflows/ci.yml" od_state "$repo" 1.1.0
+  base=$(od_head "$repo")
+  od_pass "a sync PR may leave a file that the head manifest turns into a seeded one" "$repo" "$base" template-sync/v1.1.0
+
   # the exemption needs a version greater than the base's
   repo=$(od_repo)
   printf 'A line of the new version.\n' >>"$repo/.claude/rules/example.md"
