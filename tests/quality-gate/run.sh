@@ -1308,11 +1308,11 @@ FORMS
   cp "$ROOT/docs/cr/_template/impact-analysis.md" "$skel/impact-analysis.md"
 
   # a write error part way leaves nothing behind (never what existed before), and the next run succeeds
-  newcr_failing() { # newcr_failing N SLUG K: scripts/new-cr with the K-th file write failing (disk full)
+  newcr_failing() { # newcr_failing N SLUG K [rmtree|rmdir]: scripts/new-cr with the K-th file write failing (disk full), and optionally the cleanup failing too
     RC=0
-    OUT=$(cd "$repo" && python3 -I -B - "$1" "$2" "$3" 2>&1 <<'PY'
-import builtins, errno, importlib.machinery, importlib.util, sys
-number, slug, nth = sys.argv[1], sys.argv[2], int(sys.argv[3])
+    OUT=$(cd "$repo" && python3 -I -B - "$1" "$2" "$3" "${4:-}" 2>&1 <<'PY'
+import builtins, errno, importlib.machinery, importlib.util, pathlib, sys
+number, slug, nth, cleanup = sys.argv[1], sys.argv[2], int(sys.argv[3]), sys.argv[4]
 loader = importlib.machinery.SourceFileLoader("new_cr", "scripts/new-cr")
 module = importlib.util.module_from_spec(importlib.util.spec_from_loader("new_cr", loader))
 loader.exec_module(module)
@@ -1324,6 +1324,12 @@ def failing(path, mode="r", *args, **kwargs):
             raise OSError(errno.ENOSPC, "No space left on device")
     return real(path, mode, *args, **kwargs)
 builtins.open = failing
+def busy(*args, **kwargs):
+    raise OSError(errno.EBUSY, "Device or resource busy")
+if cleanup == "rmtree":
+    module.shutil.rmtree = busy
+if cleanup == "rmdir":
+    pathlib.Path.rmdir = busy
 sys.exit(module.main([number, slug]))
 PY
     ) || RC=$?
@@ -1340,7 +1346,21 @@ PY
   newcr_failing 41 first-fails 1
   rc_is "new-cr: a write error on the first file is refused" 1
   if [[ ! -e $repo/docs/cr/${CRP}41 ]]; then ok "new-cr: nothing is left after a write error on the first file"; else fail "new-cr: nothing is left after a write error on the first file"; fi
+  # a cleanup that fails is reported, with the path that is left (never "nothing was left behind")
+  newcr_failing 43 stuck-temporary 3 rmtree
+  rc_is "new-cr: a write error whose cleanup fails is refused" 1
+  out_has "new-cr: the failed cleanup names the temporary directory that is left" "remove docs/cr/.${CRP}43.new-"
+  if [[ $OUT != *"nothing was left behind"* ]]; then ok "new-cr: a failed cleanup does not claim that nothing was left behind"; else fail "new-cr: a failed cleanup does not claim that nothing was left behind" "$OUT"; fi
+  if [[ -n $(find "$repo/docs/cr" -maxdepth 1 -name ".${CRP}43.new-*") ]]; then ok "new-cr: the leftover named in the message is there"; else fail "new-cr: the leftover named in the message is there"; fi
+  find "$repo/docs/cr" -maxdepth 1 -name ".${CRP}43.new-*" -exec rm -rf {} +
   printf 'schema_version: 1\nworkflow:\n  docs_roots:\n    - "fresh/"\n' >"$repo/config/project.yaml"
+  before=$(tree)
+  newcr_failing 44 stuck-parent 3 rmdir
+  rc_is "new-cr: a write error whose directory removal fails is refused" 1
+  out_has "new-cr: the failed removal names the directory this run made and could not remove" "remove fresh/cr"
+  if [[ $OUT != *"nothing was left behind"* && -d $repo/fresh/cr ]]; then ok "new-cr: the directory named in the message is there, and nothing is claimed"; else fail "new-cr: the directory named in the message is there, and nothing is claimed" "$OUT"; fi
+  rm -rf "$repo/fresh"
+  if [[ $before == "$(tree)" ]]; then ok "new-cr: the temporary directory is removed even when a parent cannot be"; else fail "new-cr: the temporary directory is removed even when a parent cannot be"; fi
   before=$(tree)
   newcr_failing 42 new-root 3
   rc_is "new-cr: a write error in a root that has no cr/ directory is refused" 1

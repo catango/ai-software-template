@@ -75,11 +75,11 @@ def unfilled(rendered):
     return found
 
 
-def write_all(root, relative, target, rendered):
+def write_all(relative, target, rendered):
     """Write the files into a new sibling directory and rename it to `target`, so the target is never half written.
 
     On any failure what this run created (the temporary directory and any directory above the target that did not exist) is removed
-    again, and nothing that existed before is touched. Returns None, or the error text.
+    again, and nothing that existed before is touched. Returns None, or (the error, the paths this run created and could not remove).
     """
     made = []
     staging = target.parent / f".{target.name}.new-{os.getpid()}"
@@ -101,16 +101,18 @@ def write_all(root, relative, target, rendered):
         os.rename(staging, target)
         return None
     except BaseException as error:
+        leftovers = []
         for directory in reversed(made):
-            if directory == staging:
-                shutil.rmtree(directory, ignore_errors=True)
-            else:
-                try:
+            try:
+                if directory == staging:
+                    shutil.rmtree(directory)
+                else:
                     directory.rmdir()
-                except OSError:
-                    pass
+            except OSError:
+                if os.path.lexists(directory):
+                    leftovers.append(directory)
         if isinstance(error, OSError):
-            return error
+            return error, leftovers
         raise
 
 
@@ -182,8 +184,12 @@ def main(argv=None):
     if args.dry_run:
         print("Dry run: nothing is written.")
     else:
-        error = write_all(root, relative, target, rendered)
-        if error:
+        failed = write_all(relative, target, rendered)
+        if failed:
+            error, leftovers = failed
+            if leftovers:
+                names = ", ".join(os.path.relpath(path, root) for path in leftovers)
+                return refuse(f"write failed: {error}; the cleanup failed too: remove {names} by hand")
             return refuse(f"write failed: {error}; nothing was left behind")
     for name in FILES:
         print(f"  {'would write' if args.dry_run else 'wrote'} {relative}/{name}")
