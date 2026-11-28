@@ -1,0 +1,7 @@
+version: 2
+# - package-ecosystem: github-actions
+updates:
+  - package-ecosystem: pip
+    directory: /toolchain/python
+    schedule:
+      interval: weekly

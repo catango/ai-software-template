@@ -1,0 +1,5 @@
+# fixture config
+github:
+  owner: "example-owner"
+  approver_login: example-approver   # only this account approves
+  machine_login: "example-bot"

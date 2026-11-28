@@ -307,7 +307,7 @@ test_dispatcher() {
   # --list, --only, --skip, --base
   gate "$repo" --list
   rc_is "--list exits 0" 0
-  expected="bash-hygiene shellcheck public-repo-hygiene workflow-policy forbidden-api no-claude-in-workflows links yaml markdown size-budget actionlint claude-md deny-list owned-drift toolchain python operator-contract cr-layout gate-tests"
+  expected="bash-hygiene shellcheck public-repo-hygiene codeowners workflow-policy dependabot-config forbidden-api no-claude-in-workflows links yaml markdown size-budget actionlint claude-md deny-list owned-drift toolchain python operator-contract cr-layout gate-tests"
   n=$(awk '{print $1}' <<<"$OUT" | grep -Ev '^(ID|CHECK)$' | tr '\n' ' ' | sed 's/ $//')
   if [[ $n == "$expected" ]]; then ok "--list shows check ids in order"; else fail "--list shows check ids in order" "got: $n"; fi
   out_has "--list shows the tool" "shellcheck"
@@ -391,7 +391,11 @@ test_dispatcher() {
   repo=$(new_repo)
   good_script "$repo" good.sh
   printf '# T\n\n[a](good.sh)\n' >"$repo/README.md"
+  # the whole gate also runs codeowners and dependabot-config, which need the seeded files and the approver of the configuration
+  printf 'schema_version: 1\ngithub:\n  approver_login: "example-approver"\nworkflow:\n  operator_paths: []\n' >"$repo/config/project.yaml"
   mkdir -p "$repo/.github/workflows"
+  printf '* @example-approver\n' >"$repo/.github/CODEOWNERS"
+  printf 'version: 2\nupdates:\n  - package-ecosystem: github-actions\n    directory: /\n    schedule:\n      interval: weekly\n' >"$repo/.github/dependabot.yml"
   printf 'name: x\non: push\npermissions: {}\njobs:\n  quality-gate:\n    runs-on: ubuntu-latest\n    timeout-minutes: 5\n    steps:\n      - run: echo hi\n' >"$repo/.github/workflows/ci.yml"
   commit_all "$repo"
   RC=0
