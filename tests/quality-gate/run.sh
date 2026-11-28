@@ -1425,6 +1425,7 @@ test_owned_drift() {
   od_fail "an init branch is no exemption when the base already has state.toml" "$repo" "$base" init/v1.1.0 "owned file changed without an entry"
   repo=$(new_repo)
   commit_all "$repo" "template"
+  printf 'x\n' >"$repo/notes.md"
   base=$(od_head "$repo")
   od_run "$repo" "$base" feature/x
   rc_is "owned-drift: a repository without state.toml at the base and the head has nothing to judge (exit 0 under the gate: SKIP)" 0

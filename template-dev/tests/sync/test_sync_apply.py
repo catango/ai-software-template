@@ -296,16 +296,14 @@ class SecondRunAndDryRun(unittest.TestCase):
         self.assertEqual(state.render(syncfx.SOURCE, "1.2.3", "c" * 40, owned, {}), expected)
 
 
-class RollbackAfterAFailedWrite(unittest.TestCase):
-    def test_a_failed_write_leaves_the_default_branch_and_a_clean_tree(self):
+class ADirectoryInTheWay(unittest.TestCase):
+    def test_a_directory_where_the_tag_has_a_file_is_refused_before_anything_changes(self):
         fx = syncfx.Fixture(self)
-        # a directory where the sync wants to write a file makes the copy fail halfway
-        (fx.tree / "scripts/lib/template_sync_fixture_added.py").mkdir(parents=True)
         write(fx.tree, "scripts/lib/template_sync_fixture_added.py/keep", "x")
         fx.commit_local("a directory in the way")
         before = fx.head()
         done = fx.run("v1.1.0")
-        self.assertNotEqual(done.returncode, 0)
+        self.assertEqual(done.returncode, 1, done.stdout)
         self.assertEqual((fx.branch(), fx.head()), ("main", before))
         self.assertTrue(fx.clean())
         self.assertNotIn("template-sync/v1.1.0", fx.git("branch", "--list"))

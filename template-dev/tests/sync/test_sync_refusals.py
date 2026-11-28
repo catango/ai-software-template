@@ -45,6 +45,7 @@ class Base(unittest.TestCase):
     def sync_and_merge(self, tag="v1.1.0"):
         self.assertEqual(self.fx.run(tag).returncode, 0)
         self.fx.merge_branch(f"template-sync/{tag}")
+        (self.fx.remotes / "created-pr.json").unlink()
         self.head, self.snapshot = self.fx.head(), self.fx.snapshot()
         self.branches = self.fx.git("branch", "--list")
 

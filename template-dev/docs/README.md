@@ -24,5 +24,6 @@ repository carries it, and the payload keeps no change request or ADR instance u
 | [CR and ADR templates](cr-templates.md) | this directory | What plan row 5 built (`new-cr`, `cr-layout`, the skeletons, the locator) and the points for the approver |
 | [Skills and their scripts](skills-core.md) | this directory | What plan row 6 built (six Skills, `cr-context`, `cr-preflight`, `cr-criteria`, `pr-checkpoint`), the five verification points, and the points for the approver |
 | [Review feedback](review-feedback.md) | this directory | What plan row 7 built (`address-review-feedback`, `review-threads`), how GitHub exposes an edit by another account, and the points for the approver |
+| [template-sync](template-sync.md) | this directory | What plan row 8 built (`template-sync`, `sync-template`, `owned-drift`, the `sync` test), the `owned-drift` reading for `uses:` changes, the follow-up for `pr-contract.yml`, and the points for the approver |
 
 No change request or ADR of this repository exists yet.

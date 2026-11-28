@@ -101,9 +101,25 @@ jobs:
         shell: bash
         run: template-dev/run-tests.sh skills
 
+  # T-9 and T-10: template-sync against local git repositories as the template, the lag line, and the classes of the files of plan row 8.
+  # T-17 (the gate check owned-drift) runs in the gate through ci.yml. The tests need no network and no credential.
+  sync:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Run the sync tests
+        shell: bash
+        run: template-dev/run-tests.sh sync
+
   # The one required check of this workflow: it needs every other job, always runs, and fails unless each succeeded.
   template-ci:
-    needs: [manifest, leak, engine, ci, skills]
+    needs: [manifest, leak, engine, ci, skills, sync]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
