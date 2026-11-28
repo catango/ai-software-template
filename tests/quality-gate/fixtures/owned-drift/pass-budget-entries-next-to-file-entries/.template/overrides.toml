@@ -1,0 +1,12 @@
+[[budget]]
+class = "rule"
+key = "max_bytes"
+value = 9999
+reason = "r"
+pr = "#3"
+
+[[override]]
+path = ".claude/rules/example.md"
+reason = "the project words this rule its own way"
+pr = "example-owner/sample-app#7"
+

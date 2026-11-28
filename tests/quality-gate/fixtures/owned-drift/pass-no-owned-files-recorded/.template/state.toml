@@ -1,0 +1,11 @@
+# Written by scripts/initialize-project and by template-sync only. Do not edit by hand.
+schema_version = 1
+
+[template]
+source = "example-owner/template"
+version = "1.0.0"
+commit = "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+
+[owned]
+
+[overrides]

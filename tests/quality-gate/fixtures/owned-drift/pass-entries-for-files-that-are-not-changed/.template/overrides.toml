@@ -1,0 +1,10 @@
+[[override]]
+path = ".claude/rules/example.md"
+reason = "the project words this rule its own way"
+pr = "example-owner/sample-app#7"
+
+[[override]]
+path = "scripts/example.sh"
+reason = "kept in case"
+pr = "#9"
+

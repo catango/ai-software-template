@@ -1,0 +1,1 @@
+.template/overrides.toml:1: .claude/rules/example.md is recorded as an override in .template/state.toml but has no entry

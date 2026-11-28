@@ -1,0 +1,5 @@
+[[override]]
+path = "scripts/example.sh"
+reason = "the project words this rule its own way"
+pr = "example-owner/sample-app#7"
+
