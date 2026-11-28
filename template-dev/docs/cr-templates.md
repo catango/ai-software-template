@@ -69,6 +69,27 @@ ADR-010 decision 2 says; the largest is `adr/_template.md` at 44 lines. No file 
   a project may use `T-1`. A different form (`AC1`) fails.
 - **TC-1 and TC-2 questions** stay open and are not touched here. `docs/README.md` was already a seeded file in the manifest.
 
+## Review follow-up
+
+A review of the merged row found four nits; each is fixed with a test in `tests/quality-gate/run.sh`. No design decision changes: the
+design text of `cr-layout` ("every plan row names a criterion ID") is met by point 4 as written.
+
+1. **The cap of 200 Markdown files fails closed.** `cr-layout` still reads at most 200 Markdown files of a change request directory
+   (a bound on work), but reaching the cap is now a finding ("more than 200 Markdown files; not all were checked"). Exactly 200 pass.
+2. **`new-cr` leaves no partial directory.** The five files are written into a hidden sibling directory (`.CR-<n>.new-<pid>`) that is
+   renamed to `CR-<n>/` when all are written. On any error the run removes what it created (the temporary directory, and `cr/` or the
+   root when this run made them), and never anything that existed before. The refusal when the target exists, and the containment
+   checks, are unchanged and come first.
+3. **`<n>` is filled in only where it is the issue number.** The script replaces `CR-<n>` (also in `design/CR-<n>-<slug>` and
+   `impl/CR-<n>-<slug>`) and `#<n>` when they stand alone, and nothing else, so `ADR-<n>`, `<repo>:ADR-<n>`, and
+   `<owner>/<repo>#<n>` keep their `<n>`. The skeleton did not change: all its `<n>` are in the replaced forms, and a test shows none is
+   left after the replacement.
+4. **Only a criterion prefix counts in a plan cell.** A token of the `Acceptance criteria` cell is a criterion reference when its
+   prefix is one that `acceptance-criteria.md` of that change request uses; `PC-8` or `ADR-5` next to `AC-1` is prose. A defined prefix
+   with an undefined number (`AC-99`) still fails, and a cell with no token of a defined prefix still fails ("names no criterion ID").
+   Chosen over an explicit list form because it is the strictest reading that needs no new syntax and keeps the design wording. Its limit:
+   a typo that changes the prefix (`AD-1` for `AC-1`) next to a valid ID is prose and passes; with no valid ID in the cell it still fails.
+
 ## Not in this row
 
 `scripts/cr-context` and `scripts/cr-criteria` (row 6) and the `start-cr` Skill (row 6) are the readers and starters of these
