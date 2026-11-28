@@ -68,11 +68,12 @@ contains() { grep -qF -- "$2" <<<"$1"; }
 
 list_files() { (cd "$1" && find . -type f ! -name EXPECT ! -name NOECHO | sed 's|^\./||' | LC_ALL=C sort); }
 
-# unfixture DIR: a fixture file named CLAUDE.md.fixture or CLAUDE.local.md.fixture becomes the file without the suffix, so that the
-# tracked tree holds no instruction file of that name (the gate's claude-md check sees the whole tree, fixtures included).
+# unfixture DIR: a fixture file named CLAUDE.md.fixture, CLAUDE.local.md.fixture or CODEOWNERS.fixture becomes the file without the suffix,
+# so that the tracked tree holds no instruction file of that name (the gate's claude-md check sees the whole tree, fixtures included) and
+# no CODEOWNERS that is not the one allowed line (public-repo-hygiene reads every file of that name, fixtures included).
 unfixture() {
   local f
-  while IFS= read -r -d '' f; do mv "$f" "${f%.fixture}"; done < <(find "$1" -type f \( -name 'CLAUDE.md.fixture' -o -name 'CLAUDE.local.md.fixture' \) -print0)
+  while IFS= read -r -d '' f; do mv "$f" "${f%.fixture}"; done < <(find "$1" -type f \( -name 'CLAUDE.md.fixture' -o -name 'CLAUDE.local.md.fixture' -o -name 'CODEOWNERS.fixture' \) -print0)
 }
 
 run_dir() { # id name dir
