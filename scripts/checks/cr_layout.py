@@ -10,11 +10,13 @@ For every `<root>cr/CR-<n>/` and for `<root>cr/_template/`:
   - acceptance-criteria.md has a table whose first column is `ID`, with at least one row, every ID of the form `AC-1` (letters,
     a hyphen, digits), and no ID twice;
   - implementation-plan.md has a table with an `Acceptance criteria` column, and every row of it names at least one ID that
-    acceptance-criteria.md defines;
+    acceptance-criteria.md defines. Only a token whose prefix acceptance-criteria.md uses counts as a criterion reference (`PC-8`
+    next to `AC-1` is prose); a defined prefix with an undefined number (`AC-99`) is a finding;
   - every Markdown file of the directory, and every Markdown file directly under `<root>adr/`, writes a reference to another
     repository in a qualified form. Accepted: `#<n>`, `<owner>/<repo>#<n>`, `<repo>:ADR-<n>`. Rejected: `<repo>#<n>` and
     `<repo>/ADR-<n>` (and `<repo>/CR-<n>`), which name a repository without saying whose it is. Link targets, URLs, and fenced
-    code are not read. A bare `ADR-<n>` or `CR-<n>` is a record of this repository.
+    code are not read. A bare `ADR-<n>` or `CR-<n>` is a record of this repository. At most 200 Markdown files are read per
+    directory; more than that is a finding (the check does not pass on files it did not read).
 Any other entry under `<root>cr/` that is a directory or a link is a finding. Findings are "path:line: message".
 """
 import os
@@ -132,11 +134,16 @@ def plan(path, text, ids, findings):
         findings.append(f"{path}:1: no PR table with an Acceptance criteria column and at least one row")
         return
     column, rows = table
+    # A token is a criterion reference when its prefix is one that acceptance-criteria.md uses (`AC-` in `AC-1`); an ID-shaped word
+    # with another prefix (`PC-8`) is prose. A defined prefix with an undefined number (`AC-99`) is still a finding.
+    prefixes = {value.rsplit("-", 1)[0] for value in ids}
     for number, row in rows:
-        named = ID_ANYWHERE.findall(plain(row[column]) if column < len(row) else "")
+        tokens = ID_ANYWHERE.findall(plain(row[column]) if column < len(row) else "")
+        named = [value for value in tokens if value.rsplit("-", 1)[0] in prefixes]
         label = shown(plain(row[0])) if row else "?"
         if not named:
-            findings.append(f"{path}:{number}: plan row {label} names no criterion ID")
+            hint = f" ({shown(tokens[0])} has a prefix that acceptance-criteria.md does not use)" if tokens else ""
+            findings.append(f"{path}:{number}: plan row {label} names no criterion ID{hint}")
             continue
         for value in dict.fromkeys(named):
             if value not in ids:
@@ -155,13 +162,16 @@ def references(path, text, findings):
 
 
 def markdown_files(directory):
+    """([paths], capped): at most MAX_MARKDOWN_FILES paths; `capped` is true when there are more (bounds the work, never silently)."""
     out = []
     for base, dirs, names in os.walk(directory, followlinks=False):
         dirs.sort()
         for name in sorted(names):
-            if name.endswith(".md") and len(out) < MAX_MARKDOWN_FILES:
+            if name.endswith(".md"):
+                if len(out) == MAX_MARKDOWN_FILES:
+                    return out, True
                 out.append(os.path.join(base, name))
-    return out
+    return out, False
 
 
 def check_cr(root, rel, findings):
@@ -178,7 +188,10 @@ def check_cr(root, rel, findings):
         ids = criteria(f"{rel}/acceptance-criteria.md", texts["acceptance-criteria.md"], findings)
     if "implementation-plan.md" in texts and "acceptance-criteria.md" in texts:
         plan(f"{rel}/implementation-plan.md", texts["implementation-plan.md"], ids, findings)
-    for path in markdown_files(directory):
+    paths, capped = markdown_files(directory)
+    if capped:
+        findings.append(f"{rel}:1: more than {MAX_MARKDOWN_FILES} Markdown files; not all were checked")
+    for path in paths:
         text = read_text(path)
         if text is not None:
             references(os.path.relpath(path, root).replace(os.sep, "/"), text, findings)

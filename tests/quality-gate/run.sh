@@ -1089,6 +1089,13 @@ gen_cr_layout_cases() {
   sed -i '/^| 1 | /a | 2 | second | content | needs | |' "$d/fail-plan-row-without-criterion-id/$cr7/implementation-plan.md"
   mk fail-plan-row-names-an-undefined-criterion "names AC-9, which acceptance-criteria.md does not define"
   sed -i 's/| AC-1 |$/| AC-1, AC-9 |/' "$d/fail-plan-row-names-an-undefined-criterion/$cr7/implementation-plan.md"
+  # an ID whose prefix acceptance-criteria.md does not use is prose; an undefined number of a defined prefix still fails
+  mk pass-plan-cell-names-an-unrelated-id
+  sed -i 's/| AC-1 |$/| AC-1, and the rule PC-8 for the operator section |/' "$d/pass-plan-cell-names-an-unrelated-id/$cr7/implementation-plan.md"
+  mk fail-plan-cell-undefined-number-next-to-an-unrelated-id "names AC-99, which acceptance-criteria.md does not define"
+  sed -i 's/| AC-1 |$/| AC-1, PC-8, AC-99 |/' "$d/fail-plan-cell-undefined-number-next-to-an-unrelated-id/$cr7/implementation-plan.md"
+  mk fail-plan-cell-names-only-an-unrelated-id "plan row 1 names no criterion ID"
+  sed -i 's/| AC-1 |$/| the rule PC-8 |/' "$d/fail-plan-cell-names-only-an-unrelated-id/$cr7/implementation-plan.md"
   mk fail-plan-without-criteria-column "no PR table with an Acceptance criteria column"
   sed -i 's/ | Acceptance criteria |$/ | Covers |/' "$d/fail-plan-without-criteria-column/$cr7/implementation-plan.md"
   mk fail-plan-id-in-another-column "plan row 1 names no criterion ID"
@@ -1106,6 +1113,14 @@ gen_cr_layout_cases() {
   printf '# %s-1: x\n\nSupersedes other-repo#4.\n' "$ADR" >"$d/fail-unqualified-reference-in-an-adr/docs/adr/${ADP}1-x.md"
   mk fail-unqualified-reference-in-an-extra-file "notes.md:"
   printf 'Waiting for other-repo#4.\n' >"$d/fail-unqualified-reference-in-an-extra-file/$cr7/notes.md"
+  # The cap on Markdown files (200 per change request directory) fails closed: exactly 200 files pass, 201 fail with a finding.
+  mk pass-exactly-200-markdown-files
+  for f in $(seq 1 195); do printf 'extra %s\n' "$f" >"$d/pass-exactly-200-markdown-files/$cr7/extra-$f.md"; done
+  mk fail-more-than-200-markdown-files "more than 200 Markdown files; not all were checked"
+  for f in $(seq 1 196); do printf 'extra %s\n' "$f" >"$d/fail-more-than-200-markdown-files/$cr7/extra-$f.md"; done
+  mk fail-unqualified-reference-after-the-cap "more than 200 Markdown files; not all were checked"
+  for f in $(seq 1 250); do printf 'extra %s\n' "$f" >"$d/fail-unqualified-reference-after-the-cap/$cr7/extra-$f.md"; done
+  printf 'Blocked by other-repo#12.\n' >"$d/fail-unqualified-reference-after-the-cap/$cr7/zz-last.md"
   mk fail-not-a-change-request-directory "not a change request directory"
   mkdir -p "$d/fail-not-a-change-request-directory/docs/cr/notes"
   printf 'x\n' >"$d/fail-not-a-change-request-directory/docs/cr/notes/README.md"
@@ -1230,6 +1245,60 @@ test_new_cr() {
   newcr 20 a b
   rc_is "new-cr rejects a third argument" 2
   if [[ ! -e $repo/docs/cr/${CRP}20 && ! -e $repo/docs/cr/${CRP}007 && ! -e $repo/docs/cr/${CRP}0 ]]; then ok "new-cr writes nothing for a rejected argument"; else fail "new-cr writes nothing for a rejected argument"; fi
+
+  # <n> is replaced only where it means the issue number: CR-<n>, #<n>, and the branch names. A later edit of the skeleton that
+  # writes ADR-<n> or <owner>/<repo>#<n> keeps them.
+  local skel="$repo/docs/cr/_template" kept
+  printf '\nRecorded in %s-<n>, see other-owner/other-repo#<n> and other-repo:%s-<n>; this is %s-<n>, issue #<n>.\n' "$ADR" "$ADR" "$CR" >>"$skel/impact-analysis.md"
+  newcr 50 keep-forms
+  rc_is "new-cr: a skeleton with ${ADP}<n> and a qualified reference is accepted" 0
+  kept=$(grep -F 'Recorded in' "$repo/docs/cr/${CRP}50/impact-analysis.md" || true)
+  if [[ $kept == "Recorded in ${ADP}<n>, see other-owner/other-repo#<n> and other-repo:${ADP}<n>; this is ${CRP}50, issue #50." ]]; then ok "new-cr: ${ADP}<n> and <owner>/<repo>#<n> keep the <n>; ${CRP}<n> and #<n> are filled in"; else fail "new-cr: ${ADP}<n> and <owner>/<repo>#<n> keep the <n>; ${CRP}<n> and #<n> are filled in" "$kept"; fi
+  # Every <n> of the real skeleton is one of the replaced forms: none is left after the replacement.
+  if ! grep -rqE '<n>|<slug>' "$repo/docs/cr/${CRP}50/README.md" "$repo/docs/cr/${CRP}50/design.md" "$repo/docs/cr/${CRP}50/acceptance-criteria.md" "$repo/docs/cr/${CRP}50/implementation-plan.md"; then ok "new-cr: no <n> is left in the files of the real skeleton"; else fail "new-cr: no <n> is left in the files of the real skeleton"; fi
+  cp "$ROOT/docs/cr/_template/impact-analysis.md" "$skel/impact-analysis.md"
+
+  # a write error part way leaves nothing behind (never what existed before), and the next run succeeds
+  newcr_failing() { # newcr_failing N SLUG K: scripts/new-cr with the K-th file write failing (disk full)
+    RC=0
+    OUT=$(cd "$repo" && python3 -I -B - "$1" "$2" "$3" 2>&1 <<'PY'
+import builtins, errno, importlib.machinery, importlib.util, sys
+number, slug, nth = sys.argv[1], sys.argv[2], int(sys.argv[3])
+loader = importlib.machinery.SourceFileLoader("new_cr", "scripts/new-cr")
+module = importlib.util.module_from_spec(importlib.util.spec_from_loader("new_cr", loader))
+loader.exec_module(module)
+real, count = builtins.open, [0]
+def failing(path, mode="r", *args, **kwargs):
+    if "x" in mode:
+        count[0] += 1
+        if count[0] == nth:
+            raise OSError(errno.ENOSPC, "No space left on device")
+    return real(path, mode, *args, **kwargs)
+builtins.open = failing
+sys.exit(module.main([number, slug]))
+PY
+    ) || RC=$?
+  }
+  tree() { (cd "$repo" && find . -path ./.git -prune -o -print | LC_ALL=C sort | sha256sum); }
+  before=$(tree)
+  newcr_failing 40 third-fails 3
+  rc_is "new-cr: a write error on the third file is refused" 1
+  out_has "new-cr: the write error is reported" "write failed"
+  if [[ ! -e $repo/docs/cr/${CRP}40 ]]; then ok "new-cr: no directory is left after a write error"; else fail "new-cr: no directory is left after a write error"; fi
+  if [[ $before == "$(tree)" ]]; then ok "new-cr: a write error changes nothing else (no temporary directory)"; else fail "new-cr: a write error changes nothing else (no temporary directory)"; fi
+  newcr 40 third-fails
+  rc_is "new-cr: the run after a write error succeeds" 0
+  if [[ -f $repo/docs/cr/${CRP}40/implementation-plan.md ]]; then ok "new-cr: the second run writes all files"; else fail "new-cr: the second run writes all files"; fi
+  newcr_failing 41 first-fails 1
+  rc_is "new-cr: a write error on the first file is refused" 1
+  if [[ ! -e $repo/docs/cr/${CRP}41 ]]; then ok "new-cr: nothing is left after a write error on the first file"; else fail "new-cr: nothing is left after a write error on the first file"; fi
+  printf 'schema_version: 1\nworkflow:\n  docs_roots:\n    - "fresh/"\n' >"$repo/config/project.yaml"
+  before=$(tree)
+  newcr_failing 42 new-root 3
+  rc_is "new-cr: a write error in a root that has no cr/ directory is refused" 1
+  if [[ $before == "$(tree)" && ! -e $repo/fresh ]]; then ok "new-cr: the directories this run made are removed again"; else fail "new-cr: the directories this run made are removed again"; fi
+  newcr 42 new-root
+  rc_is "new-cr: the run after that succeeds" 0
 
   # roots: the first entry of docs_roots by default, another entry with --root, nothing else
   printf 'schema_version: 1\nworkflow:\n  docs_roots:\n    - "first/"\n    - "second/dir/"\n' >"$repo/config/project.yaml"

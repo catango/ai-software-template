@@ -5,10 +5,11 @@
 
 `<n>` is the issue number of THIS repository (a positive integer, no leading zero); `<slug>` names the branches
 (`design/CR-<n>-<slug>`, `impl/CR-<n>-<slug>`): lowercase letters, digits, and single hyphens, at most 40 characters.
-The files are copied from `docs/cr/_template/` into `<root>cr/CR-<n>/`, with `<n>` and `<slug>` filled in. The root is the
+The files are copied from `docs/cr/_template/` into `<root>cr/CR-<n>/`, with the issue number (in `CR-<n>` and `#<n>` only) and `<slug>` filled in. The root is the
 first entry of `workflow.docs_roots` in `config/project.yaml`; `--root` picks another entry of that list (the template repository
 keeps its own records under `template-dev/docs/`). Nothing is overwritten: if the directory exists, or any of its files does,
-the script stops before it writes anything. --dry-run prints what would be written and writes nothing.
+the script stops before it writes anything. The files are written into a temporary directory next to the target and renamed into
+place, so a write error leaves nothing behind. --dry-run prints what would be written and writes nothing.
 
 Exit status: 0 done, 1 refused, 2 usage error.
 """
@@ -16,6 +17,7 @@ Exit status: 0 done, 1 refused, 2 usage error.
 import argparse
 import os
 import re
+import shutil
 import sys
 from pathlib import Path
 
@@ -32,6 +34,10 @@ NUMBER = re.compile(r"[1-9][0-9]{0,8}")
 SLUG = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 MAX_SLUG = 40
 MAX_BYTES = 65536
+# The only places where `<n>` is the issue number: `CR-<n>` (also in the branch names `design/CR-<n>-<slug>`) and `#<n>`. An `<n>`
+# that belongs to another record (`ADR-<n>`, `<repo>:ADR-<n>`, `<owner>/<repo>#<n>`) is kept as it is: both forms must stand alone
+# (start of the text, a space, a pipe, a bracket, a parenthesis, a backtick, or the branch prefix before them).
+ISSUE_NUMBER = re.compile(r"(?:(?<![^\s|(\[`])|(?<=design/)|(?<=impl/))CR-<n>(?![\w<])|(?<![^\s|(\[`])#<n>(?!\w)")
 
 
 def refuse(message, code=1):
@@ -42,6 +48,51 @@ def refuse(message, code=1):
 def real_directory(path):
     """True for a directory that is not a symbolic link (nothing is written through a link)."""
     return path.is_dir() and not path.is_symlink()
+
+
+def fill(body, number, slug):
+    """The skeleton text with the issue number and the slug filled in, and every other `<n>` left alone."""
+    body = ISSUE_NUMBER.sub(lambda match: match.group(0).replace("<n>", number), body)
+    return body.replace("<slug>", slug)
+
+
+def write_all(root, relative, target, rendered):
+    """Write the files into a new sibling directory and rename it to `target`, so the target is never half written.
+
+    On any failure what this run created (the temporary directory and any directory above the target that did not exist) is removed
+    again, and nothing that existed before is touched. Returns None, or the error text.
+    """
+    made = []
+    staging = target.parent / f".{target.name}.new-{os.getpid()}"
+    try:
+        missing, current = [], target.parent
+        while not current.exists():
+            missing.append(current)
+            current = current.parent
+        for directory in reversed(missing):
+            directory.mkdir()
+            made.append(directory)
+        staging.mkdir()
+        made.append(staging)
+        for name, body in rendered.items():
+            with open(staging / name, "x", encoding="utf-8") as handle:
+                handle.write(body)
+        if target.exists() or target.is_symlink():
+            raise FileExistsError(f"{relative} appeared during the run")
+        os.rename(staging, target)
+        return None
+    except BaseException as error:
+        for directory in reversed(made):
+            if directory == staging:
+                shutil.rmtree(directory, ignore_errors=True)
+            else:
+                try:
+                    directory.rmdir()
+                except OSError:
+                    pass
+        if isinstance(error, OSError):
+            return error
+        raise
 
 
 def main(argv=None):
@@ -103,19 +154,13 @@ def main(argv=None):
     if os.path.commonpath([root.resolve(), (root / record_root).resolve()]) != str(root.resolve()):
         return refuse("the record root leaves the repository; nothing was written")
 
-    rendered = {
-        name: body.replace("<n>", args.number).replace("<slug>", args.slug) for name, body in bodies.items()
-    }
+    rendered = {name: fill(body, args.number, args.slug) for name, body in bodies.items()}
     if args.dry_run:
         print("Dry run: nothing is written.")
     else:
-        try:
-            target.mkdir(parents=True, exist_ok=False)
-            for name, body in rendered.items():
-                with open(target / name, "x", encoding="utf-8") as handle:
-                    handle.write(body)
-        except OSError as error:
-            return refuse(f"write failed: {error}")
+        error = write_all(root, relative, target, rendered)
+        if error:
+            return refuse(f"write failed: {error}; nothing was left behind")
     for name in FILES:
         print(f"  {'would write' if args.dry_run else 'wrote'} {relative}/{name}")
     print(f"new-cr: {'would create' if args.dry_run else 'created'} {relative}/ with {len(FILES)} files "
