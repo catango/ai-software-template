@@ -12,6 +12,15 @@ from pathlib import Path
 GROUPS = ("identifier", "platform", "arch", "placeholder")
 SCOPES = ("both", "generated")
 
+# Files that carry configuration data by design and may therefore hold architecture names and runner labels: the configuration,
+# and the CI manifest, which declares the architectures it has artifacts for (the install engine itself names none).
+ARCH_DATA_FILES = frozenset({"config/project.yaml", "toolchain/ci-manifest.toml"})
+
+# The template's own seeded configuration lists the repository that holds its design records under `design_repos` (rule PC-3
+# needs it to accept the template's own implementation PRs). That one pattern is skipped for that one file, in the payload scan
+# only: a generated tree is written from the configuration it was given and gets no exemption.
+PAYLOAD_NAME_EXEMPT = {"config/project.yaml": frozenset({"platform-repository-name"})}
+
 
 class PatternError(ValueError):
     """The pattern file is malformed."""
