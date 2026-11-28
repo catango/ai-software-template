@@ -90,6 +90,34 @@ design text of `cr-layout` ("every plan row names a criterion ID") is met by poi
    Chosen over an explicit list form because it is the strictest reading that needs no new syntax and keeps the design wording. Its limit:
    a typo that changes the prefix (`AD-1` for `AC-1`) next to a valid ID is prose and passes; with no valid ID in the cell it still fails.
 
+## Second review follow-up
+
+A review of the first follow-up found one important and five small issues; each is fixed with a test in `tests/quality-gate/run.sh`.
+No design decision changes.
+
+1. **`new-cr` refuses a placeholder it did not fill in (important).** The first follow-up filled in `CR-<n>` and `#<n>` only when they
+   stood alone, so `**CR-<n>**`, `"CR-<n>"`, `_CR-<n>_`, `docs/cr/CR-<n>/design.md`, and `**#<n>**` kept their `<n>` and the run exited 0.
+   Two changes. The common Markdown forms are now filled in: a quote, `*`, `_`, `~`, or a comma may come before either form, and `/cr/` before
+   `CR-<n>` (a trailing `_` is allowed). And after the replacement the script refuses (exit 1, `--dry-run` too) when a `CR-<n>` is left, or a
+   `#<n>` that is not the tail of `<owner>/<repo>#<n>`. The message names the file and line, and nothing is created, so no temporary
+   directory is left. `ADR-<n>`, `<repo>:ADR-<n>`, and `<owner>/<repo>#<n>` still keep their `<n>`. `/` and `:` are deliberately not leading
+   characters: `<repo>/CR-<n>` and `<repo>:CR-<n>` name a record of another repository, so they are refused rather than filled in.
+2. **The "no `<n>` left" test covers all five files.** It skipped `impact-analysis.md`. It now runs on the unmodified skeleton, after the
+   deliberate `ADR-<n>` line has been removed again.
+3. **A failed cleanup is reported.** `new-cr` printed "nothing was left behind" even when removing the temporary directory (or a directory the
+   run had made) failed. It now collects what it could not remove, and the refusal names those paths and says to remove them by hand.
+   Tested with an injected failure of the recursive removal and of the directory removal.
+4. **A leftover `.CR-<n>.new-<pid>` directory is explained.** A killed `new-cr` leaves its hidden temporary directory under `cr/`.
+   `cr-layout` stays a finding for it (the directory is not a change request) but says that it comes from an interrupted `new-cr` run and can
+   be removed. Only a name that is exactly `.CR-<n>.new-<digits>` gets that message; any other hidden directory keeps the generic one.
+   Chosen over removing the stale sibling at the start of `new-cr`: the check deletes nothing, and a directory with another process ID may
+   belong to a run that is still going.
+5. **`write_all` lost its unused `root` parameter.**
+6. **Decision for the approver: a mistyped prefix next to a valid ID.** A plan cell such as `AC-1, AD-2` passes, because `AD-2` has a prefix
+   that `acceptance-criteria.md` does not use and is read as prose (point 4 of the first follow-up; with no valid ID in the cell the row still
+   fails). This is the documented limit of that reading and the behaviour is unchanged. The approver may ask for a stricter rule, for example
+   an explicit list form or a warning for an unused prefix in a cell that has a valid ID.
+
 ## Not in this row
 
 `scripts/cr-context` and `scripts/cr-criteria` (row 6) and the `start-cr` Skill (row 6) are the readers and starters of these
