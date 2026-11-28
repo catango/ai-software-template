@@ -1239,6 +1239,48 @@ test_new_cr() {
   rc_is "new-cr rejects a third argument" 2
   if [[ ! -e $repo/docs/cr/${CRP}20 && ! -e $repo/docs/cr/${CRP}007 && ! -e $repo/docs/cr/${CRP}0 ]]; then ok "new-cr writes nothing for a rejected argument"; else fail "new-cr writes nothing for a rejected argument"; fi
 
+  # a write error part way leaves nothing behind (never what existed before), and the next run succeeds
+  newcr_failing() { # newcr_failing N SLUG K: scripts/new-cr with the K-th file write failing (disk full)
+    RC=0
+    OUT=$(cd "$repo" && python3 -I -B - "$1" "$2" "$3" 2>&1 <<'PY'
+import builtins, errno, importlib.machinery, importlib.util, sys
+number, slug, nth = sys.argv[1], sys.argv[2], int(sys.argv[3])
+loader = importlib.machinery.SourceFileLoader("new_cr", "scripts/new-cr")
+module = importlib.util.module_from_spec(importlib.util.spec_from_loader("new_cr", loader))
+loader.exec_module(module)
+real, count = builtins.open, [0]
+def failing(path, mode="r", *args, **kwargs):
+    if "x" in mode:
+        count[0] += 1
+        if count[0] == nth:
+            raise OSError(errno.ENOSPC, "No space left on device")
+    return real(path, mode, *args, **kwargs)
+builtins.open = failing
+sys.exit(module.main([number, slug]))
+PY
+    ) || RC=$?
+  }
+  tree() { (cd "$repo" && find . -path ./.git -prune -o -print | LC_ALL=C sort | sha256sum); }
+  before=$(tree)
+  newcr_failing 40 third-fails 3
+  rc_is "new-cr: a write error on the third file is refused" 1
+  out_has "new-cr: the write error is reported" "write failed"
+  if [[ ! -e $repo/docs/cr/${CRP}40 ]]; then ok "new-cr: no directory is left after a write error"; else fail "new-cr: no directory is left after a write error"; fi
+  if [[ $before == "$(tree)" ]]; then ok "new-cr: a write error changes nothing else (no temporary directory)"; else fail "new-cr: a write error changes nothing else (no temporary directory)"; fi
+  newcr 40 third-fails
+  rc_is "new-cr: the run after a write error succeeds" 0
+  if [[ -f $repo/docs/cr/${CRP}40/implementation-plan.md ]]; then ok "new-cr: the second run writes all files"; else fail "new-cr: the second run writes all files"; fi
+  newcr_failing 41 first-fails 1
+  rc_is "new-cr: a write error on the first file is refused" 1
+  if [[ ! -e $repo/docs/cr/${CRP}41 ]]; then ok "new-cr: nothing is left after a write error on the first file"; else fail "new-cr: nothing is left after a write error on the first file"; fi
+  printf 'schema_version: 1\nworkflow:\n  docs_roots:\n    - "fresh/"\n' >"$repo/config/project.yaml"
+  before=$(tree)
+  newcr_failing 42 new-root 3
+  rc_is "new-cr: a write error in a root that has no cr/ directory is refused" 1
+  if [[ $before == "$(tree)" && ! -e $repo/fresh ]]; then ok "new-cr: the directories this run made are removed again"; else fail "new-cr: the directories this run made are removed again"; fi
+  newcr 42 new-root
+  rc_is "new-cr: the run after that succeeds" 0
+
   # roots: the first entry of docs_roots by default, another entry with --root, nothing else
   printf 'schema_version: 1\nworkflow:\n  docs_roots:\n    - "first/"\n    - "second/dir/"\n' >"$repo/config/project.yaml"
   newcr 30 in-first
