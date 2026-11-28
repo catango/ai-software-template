@@ -24,6 +24,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.base.sha }}
+          fetch-depth: 0
           persist-credentials: false
 
       # The head commit, in a directory of its own, to be read and never run.
@@ -56,16 +57,18 @@ jobs:
       # head directory is read-only while they run. The list holds the checks whose policy comes from the base commit:
       # operator-contract (operator_paths, operator_commands) and cr-layout (docs_roots) read the base configuration. The checks
       # that only compare files of the head with each other (the instruction-file and deny-list checks) have no policy input to
-      # read from the base and are not on it. The checks that a later row of the template adds (owned-drift, dependabot-config)
-      # join this list with that row.
+      # read from the base and are not on it. owned-drift joins the list: it reads the hashes of state.toml from the base commit. Only
+      # dependabot-config is still to come. The base commit is fetched with its history, because the check looks for the synced version of a
+      # workflow in it. The branch name is attacker-controlled text: it reaches the checks only through the environment, and they use it quoted.
       - name: Run the policy checks of the base against the head
         shell: bash
         env:
           GATE_BASE_REF: ${{ github.event.pull_request.base.sha }}
+          GATE_HEAD_REF: ${{ github.event.pull_request.head.ref }}
         run: |
           set -euo pipefail
           base=$PWD
-          git -C head fetch --quiet --no-tags --depth=1 "$base" "$GATE_BASE_REF"
+          git -C head fetch --quiet --no-tags "$base" "$GATE_BASE_REF"
           list=$(mktemp)
           git -C head ls-files -z | while IFS= read -r -d '' path; do
             case $path in *$'\n'* | tests/*/fixtures/*) continue ;; esac
@@ -75,7 +78,7 @@ jobs:
           chmod -R a-w head
           failed=0
           # The id of the check that forbids the product name in workflow text is written in two parts, so that this file passes it.
-          for id in workflow-policy "no-cl""aude-in-workflows" forbidden-api operator-contract cr-layout; do
+          for id in workflow-policy "no-cl""aude-in-workflows" forbidden-api operator-contract cr-layout owned-drift; do
             checker="$base/scripts/checks/$id.sh"
             if [[ ! -f $checker ]]; then
               echo "pr-contract: the checker $id is missing on the base commit"

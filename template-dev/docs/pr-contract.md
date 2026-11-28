@@ -61,14 +61,14 @@ every key sits in each fixture case and is never read.
 `pr-contract.yml` runs on `pull_request` with read scopes only and no secret. It checks out the base commit and the head commit
 (in `head/`, read-only while the checks run, no persisted credentials), runs `scripts/pr-contract` from the base with the token
 as `GH_TOKEN` for `gh`, then runs the policy checks of the base commit against the head files with `GATE_BASE_REF` set. A checker
-missing on the base commit is a failure; there is no bootstrap skip. Five checks run: `workflow-policy`,
-`no-claude-in-workflows`, `forbidden-api`, and, since the follow-up below, `operator-contract` and `cr-layout`. `owned-drift` and
-`dependabot-config` join the list with the rows that create them.
+missing on the base commit is a failure; there is no bootstrap skip. Six checks run: `workflow-policy`,
+`no-claude-in-workflows`, `forbidden-api`, and, since the follow-ups below, `operator-contract`, `cr-layout` and `owned-drift`.
+`dependabot-config` joins the list with the row that creates it.
 
 ## Left to later rows
 
-- Policy checks `owned-drift` (row 8) and `dependabot-config` (no row names it; the CR-43 plan puts it in the template's PR 2, and
-  row 2 did not seed it): they join the list in `pr-contract.yml`.
+- The policy check `dependabot-config` (no row names it; the CR-43 plan puts it in the template's PR 2, and row 2 did not seed it):
+  it joins the list in `pr-contract.yml`. (`owned-drift` joined it in the follow-up below.)
 - The private-repository checklist of the PR templates (CR-43 S-16) and the `codeowners` check (CR-43 plan, template PR 4).
 - The dry-run step that runs these cases against a generated tree (row 9): `PR_CONTRACT_TREE=<tree> template-dev/run-tests.sh skills`
   already does it for `test_cases.py`, and a run against a generated tree passed while this row was written.
@@ -201,6 +201,22 @@ does. The step test (`test_policy_commands.py`) gets the base layout the two che
 with `operator_paths`, `operator_commands` and `docs_roots`), asserts all five checks run, that a violation under the base
 `operator_paths` fails, that a head which replaces the checker, empties `operator_paths` and adds a violation still fails, the same
 for `cr-layout`, that `operator-contract` fails closed without `operator_paths`, and that a missing checker fails for each id.
+
+#### `owned-drift` joins the list (follow-up of the template-sync PR)
+
+`owned-drift` is the sixth check of the list (the spec is in `template-dev/docs/template-sync.md`, "Follow-up PR"). It reads the hashes of
+`.template/state.toml` from the base commit, so a PR that edits an owned file and rewrites `state.toml` to match is still found. The step
+gets two additions: `GATE_HEAD_REF` (the branch name, from `github.event.pull_request.head.ref`, **only in `env:`**, never in the script
+text; the check passes it as one quoted argument and matches it against fixed patterns, so it is plain text to the shell) and the history
+of the base commit (`fetch-depth: 0` on the first checkout, and the fetch into `head/` without `--depth=1`), so that the synced version of
+an owned workflow can be found for the pin-bump reading. Cost: the base checkout fetches the whole history instead of one commit; the time grows with the
+history, which is small for the template (not measured on a hosted runner; the job has a timeout of 10 minutes); `persist-credentials: false` stays, so the token is gone from the checkout
+after its own fetch and nothing reads it afterwards, and the permissions and the pinned action SHAs are unchanged. The tests are in
+`test_policy_commands.py` (an owned file changed with a matching `state.toml`; a head that replaces the checker; `template-sync/v<x>` with
+a consistent state and with a dropped hash; a missing checker; a branch name made of shell metacharacters) and `test_workflow.py`.
+
+The PR that makes this change is judged by the `pr-contract` of its base, whose list does not have `owned-drift`: the new list takes effect
+from the next PR after it is merged. On that PR itself `owned-drift` runs only through the `quality-gate` job of `ci.yml`.
 
 The gate check `deny-list` (`scripts/checks/deny_list.py`) still splits the list on `\n` only. It was left alone on purpose: a preset
 line with an exotic break (for example two entries separated by a form feed) is read there as one entry that is not in
