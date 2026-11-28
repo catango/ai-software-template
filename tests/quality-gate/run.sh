@@ -1239,6 +1239,18 @@ test_new_cr() {
   rc_is "new-cr rejects a third argument" 2
   if [[ ! -e $repo/docs/cr/${CRP}20 && ! -e $repo/docs/cr/${CRP}007 && ! -e $repo/docs/cr/${CRP}0 ]]; then ok "new-cr writes nothing for a rejected argument"; else fail "new-cr writes nothing for a rejected argument"; fi
 
+  # <n> is replaced only where it means the issue number: CR-<n>, #<n>, and the branch names. A later edit of the skeleton that
+  # writes ADR-<n> or <owner>/<repo>#<n> keeps them.
+  local skel="$repo/docs/cr/_template" kept
+  printf '\nRecorded in %s-<n>, see other-owner/other-repo#<n> and other-repo:%s-<n>; this is %s-<n>, issue #<n>.\n' "$ADR" "$ADR" "$CR" >>"$skel/impact-analysis.md"
+  newcr 50 keep-forms
+  rc_is "new-cr: a skeleton with ${ADP}<n> and a qualified reference is accepted" 0
+  kept=$(grep -F 'Recorded in' "$repo/docs/cr/${CRP}50/impact-analysis.md" || true)
+  if [[ $kept == "Recorded in ${ADP}<n>, see other-owner/other-repo#<n> and other-repo:${ADP}<n>; this is ${CRP}50, issue #50." ]]; then ok "new-cr: ${ADP}<n> and <owner>/<repo>#<n> keep the <n>; ${CRP}<n> and #<n> are filled in"; else fail "new-cr: ${ADP}<n> and <owner>/<repo>#<n> keep the <n>; ${CRP}<n> and #<n> are filled in" "$kept"; fi
+  # Every <n> of the real skeleton is one of the replaced forms: none is left after the replacement.
+  if ! grep -rqE '<n>|<slug>' "$repo/docs/cr/${CRP}50/README.md" "$repo/docs/cr/${CRP}50/design.md" "$repo/docs/cr/${CRP}50/acceptance-criteria.md" "$repo/docs/cr/${CRP}50/implementation-plan.md"; then ok "new-cr: no <n> is left in the files of the real skeleton"; else fail "new-cr: no <n> is left in the files of the real skeleton"; fi
+  cp "$ROOT/docs/cr/_template/impact-analysis.md" "$skel/impact-analysis.md"
+
   # a write error part way leaves nothing behind (never what existed before), and the next run succeeds
   newcr_failing() { # newcr_failing N SLUG K: scripts/new-cr with the K-th file write failing (disk full)
     RC=0

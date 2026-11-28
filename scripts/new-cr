@@ -5,7 +5,7 @@
 
 `<n>` is the issue number of THIS repository (a positive integer, no leading zero); `<slug>` names the branches
 (`design/CR-<n>-<slug>`, `impl/CR-<n>-<slug>`): lowercase letters, digits, and single hyphens, at most 40 characters.
-The files are copied from `docs/cr/_template/` into `<root>cr/CR-<n>/`, with `<n>` and `<slug>` filled in. The root is the
+The files are copied from `docs/cr/_template/` into `<root>cr/CR-<n>/`, with the issue number (in `CR-<n>` and `#<n>` only) and `<slug>` filled in. The root is the
 first entry of `workflow.docs_roots` in `config/project.yaml`; `--root` picks another entry of that list (the template repository
 keeps its own records under `template-dev/docs/`). Nothing is overwritten: if the directory exists, or any of its files does,
 the script stops before it writes anything. The files are written into a temporary directory next to the target and renamed into
@@ -34,6 +34,10 @@ NUMBER = re.compile(r"[1-9][0-9]{0,8}")
 SLUG = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 MAX_SLUG = 40
 MAX_BYTES = 65536
+# The only places where `<n>` is the issue number: `CR-<n>` (also in the branch names `design/CR-<n>-<slug>`) and `#<n>`. An `<n>`
+# that belongs to another record (`ADR-<n>`, `<repo>:ADR-<n>`, `<owner>/<repo>#<n>`) is kept as it is: both forms must stand alone
+# (start of the text, a space, a pipe, a bracket, a parenthesis, a backtick, or the branch prefix before them).
+ISSUE_NUMBER = re.compile(r"(?:(?<![^\s|(\[`])|(?<=design/)|(?<=impl/))CR-<n>(?![\w<])|(?<![^\s|(\[`])#<n>(?!\w)")
 
 
 def refuse(message, code=1):
@@ -44,6 +48,12 @@ def refuse(message, code=1):
 def real_directory(path):
     """True for a directory that is not a symbolic link (nothing is written through a link)."""
     return path.is_dir() and not path.is_symlink()
+
+
+def fill(body, number, slug):
+    """The skeleton text with the issue number and the slug filled in, and every other `<n>` left alone."""
+    body = ISSUE_NUMBER.sub(lambda match: match.group(0).replace("<n>", number), body)
+    return body.replace("<slug>", slug)
 
 
 def write_all(root, relative, target, rendered):
@@ -144,9 +154,7 @@ def main(argv=None):
     if os.path.commonpath([root.resolve(), (root / record_root).resolve()]) != str(root.resolve()):
         return refuse("the record root leaves the repository; nothing was written")
 
-    rendered = {
-        name: body.replace("<n>", args.number).replace("<slug>", args.slug) for name, body in bodies.items()
-    }
+    rendered = {name: fill(body, args.number, args.slug) for name, body in bodies.items()}
     if args.dry_run:
         print("Dry run: nothing is written.")
     else:
