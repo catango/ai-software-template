@@ -77,13 +77,24 @@ jobs:
         shell: bash
         run: template-dev/run-tests.sh ci
 
-  # The fixture tests of scripts/pr-contract (T-8, T-20 rule part), and the gate-evidence script. They run offline: no GitHub call.
-  # Later rows add the tests of the other Skill scripts to this job.
+  # The fixture tests of scripts/pr-contract (T-8, T-20 rule part), the Skill scripts, and the gate-evidence script: steps 5 and 7 of
+  # design section 12 (a). They run offline: no GitHub call. On both architectures; the pr-contract cases also run against a tree
+  # generated from each configuration (tests/skills/test_generated_tree.py).
   skills:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    name: skills-${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
     permissions:
       contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -101,13 +112,24 @@ jobs:
         shell: bash
         run: template-dev/run-tests.sh skills
 
-  # T-9 and T-10: template-sync against local git repositories as the template, the lag line, and the classes of the files of plan row 8.
-  # T-17 (the gate check owned-drift) runs in the gate through ci.yml. The tests need no network and no credential.
+  # T-9 and T-10, step 6 of design section 12 (a): template-sync against local git repositories as the template, the lag line, and the
+  # classes of the files of plan row 8, on both architectures. T-17 (the gate check owned-drift) runs in the gate through ci.yml.
+  # The tests need no network and no credential.
   sync:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    name: sync-${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 25
     permissions:
       contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -117,9 +139,77 @@ jobs:
         shell: bash
         run: template-dev/run-tests.sh sync
 
+  # T-2, T-3 (the generated CI passes on ARM64), T-16 (a) and T-21: the scripted dry run of design section 12 (a), steps 1 to 4 and 8
+  # (export, initialize-project, the gate in the generated repository, new-cr with cr-layout, the leak scan), on both architectures
+  # with two different configurations. template-dev/dry-run.sh writes only inside its output directory and needs no network after the
+  # tools are installed. The runner labels are those of config/project.yaml: the template repository is public, so the hosted ARM64
+  # runner exists; a private repository would have none, and these legs would not start.
+  generate:
+    name: generate-${{ matrix.arch }}-${{ matrix.config }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 40
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+        config: [neutral, second]
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+          - config: neutral
+            config_file: template-dev/fixtures/config/neutral.toml
+          - config: second
+            config_file: template-dev/fixtures/config/second/config.toml
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The gate tools come from the CI manifest (checksum-verified, hash-locked) for this architecture, like in ci.yml.
+      - name: Install the gate tools
+        shell: bash
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          python3 -I toolchain/install install --profile gate --arch "$ARCH" --prefix "$RUNNER_TEMP/toolchain"
+          echo "$RUNNER_TEMP/toolchain/bin" >> "$GITHUB_PATH"
+
+      - name: Dry run
+        shell: bash
+        env:
+          CONFIG_FILE: ${{ matrix.config_file }}
+        run: |
+          mkdir "$RUNNER_TEMP/dry-run"
+          template-dev/dry-run.sh --template "$GITHUB_WORKSPACE" --config "$CONFIG_FILE" --out "$RUNNER_TEMP/dry-run" \
+            | tee "$RUNNER_TEMP/dry-run-report.txt"
+
+      - name: Report
+        if: always()
+        shell: bash
+        run: |
+          if [[ -f "$RUNNER_TEMP/dry-run-report.txt" ]]; then
+            {
+              echo '### dry run'
+              echo
+              echo '```'
+              cat "$RUNNER_TEMP/dry-run-report.txt"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      # The tests of the script itself (a patched, instant gate; the real gate ran above). Once per architecture.
+      - name: Run the dry-run tests
+        if: matrix.config == 'neutral'
+        shell: bash
+        run: template-dev/run-tests.sh dry-run
+
   # The one required check of this workflow: it needs every other job, always runs, and fails unless each succeeded.
   template-ci:
-    needs: [manifest, leak, engine, ci, skills, sync]
+    needs: [manifest, leak, engine, ci, skills, sync, generate]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
