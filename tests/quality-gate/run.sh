@@ -1313,6 +1313,10 @@ od_state() {
     printf '\n[overrides]\n'
   } >"$repo/.template/state.toml"
 }
+# od_state_override REPO: the state of a sync that kept .claude/rules/example.md as an override (hash as the template ships it)
+od_state_override() {
+  sed -i 's|^\[overrides\]$|[overrides]\n".claude/rules/example.md" = "override"|' "$1/.template/state.toml"
+}
 # od_repo: a repository whose base commit holds the owned files and the state written with them (the commit of the last sync)
 od_repo() {
   local repo
@@ -1406,6 +1410,47 @@ test_owned_drift() {
   printf 'A line of the new version.\n' >>"$repo/.claude/rules/example.md"
   base=$(od_head "$repo")
   od_fail "a sync PR that leaves state.toml alone fails" "$repo" "$base" template-sync/v1.1.0 "owned file changed without an entry"
+
+  # a sync PR cannot change an owned file by dropping its line from [owned]: a path of the base state that the head no longer lists must be gone
+  repo=$(od_repo)
+  printf 'A line the template never shipped.\n' >>"$repo/.claude/rules/example.md"
+  OD_OWNED=".github/workflows/ci.yml" od_state "$repo" 1.1.0
+  base=$(od_head "$repo")
+  od_fail "a sync PR that changes an owned file and drops it from [owned] fails" "$repo" "$base" template-sync/v1.1.0 ".claude/rules/example.md:1: dropped from [owned] of .template/state.toml but still present"
+  repo=$(od_repo)
+  rm "$repo/.claude/rules/example.md"
+  OD_OWNED=".github/workflows/ci.yml" od_state "$repo" 1.1.0
+  base=$(od_head "$repo")
+  od_pass "a sync PR that removes an owned file and drops it from [owned] passes" "$repo" "$base" template-sync/v1.1.0
+  repo=$(od_repo)
+  od_entry .claude/rules/example.md "$repo"
+  commit_all "$repo" "declare the divergence"
+  OD_OWNED=".github/workflows/ci.yml" od_state "$repo" 1.1.0
+  od_state_override "$repo"
+  base=$(od_head "$repo")
+  od_pass "a sync PR may keep a file that is recorded as an override and dropped from [owned]" "$repo" "$base" template-sync/v1.1.0
+
+  # the exemption needs a version greater than the base's
+  repo=$(od_repo)
+  printf 'A line of the new version.\n' >>"$repo/.claude/rules/example.md"
+  od_state "$repo" 1.0.0
+  base=$(od_head "$repo")
+  od_fail "a sync PR that records the version of the base fails" "$repo" "$base" template-sync/v1.0.0 ".template/state.toml:1: a template-sync pull request must record a version greater than the base's (1.0.0)"
+  repo=$(od_repo)
+  printf 'A line of the new version.\n' >>"$repo/.claude/rules/example.md"
+  od_state "$repo" 0.9.0
+  base=$(od_head "$repo")
+  od_fail "a sync PR that records a lower version fails" "$repo" "$base" template-sync/v0.9.0 ".template/state.toml:1: a template-sync pull request must record a version greater than the base's (1.0.0)"
+  repo=$(od_repo)
+  printf 'A line of the new version.\n' >>"$repo/.claude/rules/example.md"
+  od_state "$repo" 1.0.1
+  base=$(od_head "$repo")
+  od_pass "a sync PR that records a higher version passes" "$repo" "$base" template-sync/v1.0.1
+  repo=$(od_repo)
+  printf 'A line of the new version.\n' >>"$repo/.claude/rules/example.md"
+  od_state "$repo" 1.10.0
+  base=$(od_head "$repo")
+  od_pass "versions are compared as numbers" "$repo" "$base" template-sync/v1.10.0
 
   # the exemption of an init PR: the base has no state.toml, the head writes it with the files
   repo=$(new_repo)

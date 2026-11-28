@@ -1,6 +1,7 @@
 """T-9: `scripts/template-sync` from version A to version B, run against a local git repository as the template (`--fixture`)."""
 import json
 import re
+import subprocess
 import unittest
 from pathlib import Path
 
@@ -232,6 +233,30 @@ class SyncFromAToB(unittest.TestCase):
         parsed = markdown.parse(self.body().replace("docs/NEW-SEEDED.md", "docs/other.md"))
         found = template_rules.check_template_sync(pr, files, _GitClient(self.fx.tree), parsed)
         self.assertTrue(any("is not listed" in v.message for v in found))
+
+    # ---------------------------------------------------------------------------------------------- owned-drift, end to end
+
+    def drift(self, base):
+        done = subprocess.run(["bash", str(self.fx.tree / "scripts/checks/owned-drift.sh")], input="", cwd=self.fx.tree, capture_output=True, text=True,
+                              env=syncfx.env({"GATE_BASE_REF": base, "GITHUB_HEAD_REF": "template-sync/v1.1.0"}))
+        return done.returncode, done.stdout + done.stderr
+
+    def test_the_result_of_the_sync_passes_owned_drift_against_the_commit_it_started_from(self):
+        self.assertEqual(self.drift(self.before_local), (0, ""))
+
+    def test_the_same_result_with_one_owned_file_changed_and_dropped_from_the_state_fails(self):
+        write(self.fx.tree, ".claude/rules/bash.md", read(self.fx.tree, ".claude/rules/bash.md") + b"- A line that no release shipped.\n")
+        text = read(self.fx.tree, ".template/state.toml").decode()
+        write(self.fx.tree, ".template/state.toml", re.sub(r'"\.claude/rules/bash\.md" = "[0-9a-f]{64}"\n', "", text))
+        self.fx.commit_local("tamper")
+        code, out = self.drift(self.before_local)
+        self.assertEqual(code, 1, out)
+        self.assertIn(".claude/rules/bash.md:1: dropped from [owned]", out)
+
+    def test_a_removal_by_the_sync_is_not_a_dropped_path(self):
+        self.assertNotIn("scripts/lib/template_sync_fixture_removed.py", self.fx.state()["owned"])
+        self.assertFalse((self.fx.tree / "scripts/lib/template_sync_fixture_removed.py").exists())
+        self.assertEqual(self.drift(self.before_local)[0], 0)
 
     # ---------------------------------------------------------------------------------------------- the same files outside the diff
 
