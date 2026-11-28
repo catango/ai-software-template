@@ -188,6 +188,35 @@ cr_layout() {
   return "$rc"
 }
 
+# cr_layout_rejects PATTERN WHAT: cr-layout exits 1 and its log has a finding that matches PATTERN (an extended expression over the
+# stable part of the finding, never over user text). Sets `detail` on failure.
+cr_layout_rejects() {
+  local rc=0
+  cr_layout || rc=$?
+  if [[ $rc -ne 1 ]]; then
+    detail="cr-layout accepted $2 (exit $rc)"
+    return 1
+  fi
+  if ! grep -Eq -- "$1" "$work/cr-layout.log"; then
+    show_tail "$work/cr-layout.log"
+    detail="cr-layout rejected $2, but not with the finding for it"
+    return 1
+  fi
+}
+
+# restore_trial WHAT FILE: undo the changes of a negative case in the trial copy and check that it is clean and FILE is back.
+restore_trial() {
+  if ! "${iso[@]}" git -C "$trial" checkout --quiet -- . >>"$work/git.log" 2>&1; then
+    show_tail "$work/git.log"
+    detail="git checkout failed: the trial copy was not restored after $1"
+    return 1
+  fi
+  if [[ ! -f $2 || -n $("${iso[@]}" git -C "$trial" status --porcelain --untracked-files=all) ]]; then
+    detail="the trial copy is not restored after $1: it differs from its commit"
+    return 1
+  fi
+}
+
 step_new_cr() {
   trial=$work/cr-trial
   cp -a "$repo" "$trial"
@@ -211,23 +240,26 @@ step_new_cr() {
     detail='git commit failed in the trial copy'
     return 1
   fi
-  local rc
-  rm -- "$dir/impact-analysis.md"
-  rc=0
-  cr_layout || rc=$?
-  if [[ $rc -ne 1 ]]; then
-    detail="cr-layout accepted a change request with a missing file (exit $rc)"
+  # Each negative case is set up, judged, and undone with every command checked (the steps run inside `if`, where `set -e` is off). A
+  # case passes only when cr-layout exits 1 AND its log has the finding for that case, so another failure cannot stand in for it.
+  rm -- "$dir/impact-analysis.md" || {
+    detail='could not remove impact-analysis.md from the trial copy'
+    return 1
+  }
+  cr_layout_rejects 'impact-analysis\.md:1: the change request has no readable regular file impact-analysis\.md' \
+    'a change request with a missing file' || return 1
+  restore_trial 'the missing-file case' "$dir/impact-analysis.md" || return 1
+  printf '\nSee sample-design#12 for the design.\n' >>"$dir/design.md" || {
+    detail='could not add the unqualified reference to design.md in the trial copy'
+    return 1
+  }
+  cr_layout_rejects 'design\.md:[0-9]+: unqualified reference to another repository' \
+    'an unqualified reference to another repository' || return 1
+  if grep -Eq 'no readable regular file' "$work/cr-layout.log"; then
+    detail='the unqualified-reference case still saw a missing file: the trial copy was not restored'
     return 1
   fi
-  "${iso[@]}" git -C "$trial" checkout --quiet -- . >>"$work/git.log" 2>&1
-  printf '\nSee sample-design#12 for the design.\n' >>"$dir/design.md"
-  rc=0
-  cr_layout || rc=$?
-  if [[ $rc -ne 1 ]]; then
-    detail="cr-layout accepted an unqualified reference to another repository (exit $rc)"
-    return 1
-  fi
-  "${iso[@]}" git -C "$trial" checkout --quiet -- . >>"$work/git.log" 2>&1
+  restore_trial 'the reference case' "$dir/impact-analysis.md" || return 1
 }
 
 step_leak() {

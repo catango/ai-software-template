@@ -300,8 +300,8 @@ class HappyRun(DryRunCase):
 
 
 class FailingSteps(DryRunCase):
-    def failing(self, template=None, gate=0, config="neutral"):
-        done = self.run_script(template=template, gate=gate, config=config)
+    def failing(self, template=None, gate=0, config="neutral", path=None):
+        done = self.run_script(template=template, gate=gate, config=config, extra_env={"PATH": path} if path else None)
         self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
         steps, summary = report(done.stdout)
         self.assertEqual(summary["result"], "fail")
@@ -364,6 +364,75 @@ class FailingSteps(DryRunCase):
         done, steps, _ = self.failing(template=self.template_copy(patch))
         self.assertEqual(steps["4"]["result"], "fail")
         self.assertIn("sample", steps["4"]["detail"])
+
+    # -- step 4: the setup of each negative case is checked, and so is the reason cr-layout gives -------------------------------------
+
+    # "@" stands for the directory of the sample request; the stand-in builds it at run time, because the leak scan of the generated tree
+    # would (rightly) flag a record number written in a file of the payload.
+    MISSING = "@/impact-analysis.md:1: the change request has no readable regular file impact-analysis.md"
+
+    def checker(self, missing, reference):
+        """A cr_layout.py for a template copy: passes a complete request; the findings for the two cases are the given lines."""
+        code = (
+            "import os, sys\n"
+            "d = 'docs/cr/' + 'CR' + '-1'\n"
+            "if os.path.isdir(d) and not os.path.exists(d + '/impact-analysis.md'):\n"
+            f"    print({missing!r}.replace('@', d)); sys.exit(1)\n"
+            "if os.path.isdir(d) and 'sample-design#12' in open(d + '/design.md').read():\n"
+            f"    print({reference!r}.replace('@', d)); sys.exit(1)\n"
+        )
+        return lambda template: (template / "scripts" / "checks" / "cr_layout.py").write_text(code)
+
+    REFERENCE = ("@/design.md:40: unqualified reference to another repository \"sample-design#12\": "
+                 "write <owner>/<repo>#<n>")
+
+    def wrapper_dir(self, name, body):
+        """A directory for PATH with one stand-in program that runs `body` and otherwise the real program."""
+        real = shutil.which(name)
+        directory = self.tmp / f"bin-{name}"
+        directory.mkdir()
+        (directory / name).write_text(f'#!/usr/bin/env bash\n{body}\nexec {real} "$@"\n')
+        (directory / name).chmod(0o755)
+        return f"{directory}:{os.environ['PATH']}"
+
+    def test_a_stand_in_checker_that_gives_the_right_findings_passes_step_4(self):
+        done = self.run_script(template=self.template_copy(self.checker(self.MISSING, self.REFERENCE)))
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+
+    def test_a_restore_that_fails_between_the_cases_fails_step_4_and_says_so(self):
+        # without the check, the reference case would take its exit status 1 from the file that is still missing
+        path = self.wrapper_dir("git", 'if [[ " $* " == *" checkout "* ]]; then echo "git: stand-in failure" >&2; exit 1; fi')
+        done, steps, _ = self.failing(template=self.template_copy(self.checker(self.MISSING, self.REFERENCE)), path=path)
+        self.assertEqual(steps["4"]["result"], "fail")
+        self.assertRegex(steps["4"]["detail"], r"restor")
+        self.assertIn("checkout", steps["4"]["detail"])
+
+    def test_a_removal_that_fails_fails_step_4_and_says_so(self):
+        path = self.wrapper_dir("rm", 'if [[ " $* " == *impact-analysis.md* ]]; then exit 1; fi')
+        done, steps, _ = self.failing(template=self.template_copy(self.checker(self.MISSING, self.REFERENCE)), path=path)
+        self.assertEqual(steps["4"]["result"], "fail")
+        self.assertRegex(steps["4"]["detail"], r"remov")
+        self.assertIn("impact-analysis.md", steps["4"]["detail"])
+
+    def test_a_different_finding_for_the_missing_file_fails_step_4(self):
+        other = "@/README.md:1: some other problem"
+        done, steps, _ = self.failing(template=self.template_copy(self.checker(other, self.REFERENCE)))
+        self.assertEqual(steps["4"]["result"], "fail")
+        self.assertIn("missing file", steps["4"]["detail"])
+        self.assertIn("finding", steps["4"]["detail"])
+
+    def test_a_different_finding_for_the_reference_fails_step_4(self):
+        other = "@/design.md:5: some other problem"
+        done, steps, _ = self.failing(template=self.template_copy(self.checker(self.MISSING, other)))
+        self.assertEqual(steps["4"]["result"], "fail")
+        self.assertIn("unqualified reference", steps["4"]["detail"])
+        self.assertIn("finding", steps["4"]["detail"])
+
+    def test_the_reference_finding_must_not_be_the_missing_file_finding(self):
+        # the exit status of the reference case is 1 in both; only the finding tells the cases apart
+        done, steps, _ = self.failing(template=self.template_copy(self.checker(self.MISSING, self.MISSING)))
+        self.assertEqual(steps["4"]["result"], "fail")
+        self.assertIn("unqualified reference", steps["4"]["detail"])
 
     def test_a_missing_tool_is_a_failure_and_not_a_pass(self):
         # the gate exits 3 for a missing tool under --strict; only exit 0 passes
