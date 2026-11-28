@@ -1106,6 +1106,14 @@ gen_cr_layout_cases() {
   printf '# %s-1: x\n\nSupersedes other-repo#4.\n' "$ADR" >"$d/fail-unqualified-reference-in-an-adr/docs/adr/${ADP}1-x.md"
   mk fail-unqualified-reference-in-an-extra-file "notes.md:"
   printf 'Waiting for other-repo#4.\n' >"$d/fail-unqualified-reference-in-an-extra-file/$cr7/notes.md"
+  # The cap on Markdown files (200 per change request directory) fails closed: exactly 200 files pass, 201 fail with a finding.
+  mk pass-exactly-200-markdown-files
+  for f in $(seq 1 195); do printf 'extra %s\n' "$f" >"$d/pass-exactly-200-markdown-files/$cr7/extra-$f.md"; done
+  mk fail-more-than-200-markdown-files "more than 200 Markdown files; not all were checked"
+  for f in $(seq 1 196); do printf 'extra %s\n' "$f" >"$d/fail-more-than-200-markdown-files/$cr7/extra-$f.md"; done
+  mk fail-unqualified-reference-after-the-cap "more than 200 Markdown files; not all were checked"
+  for f in $(seq 1 250); do printf 'extra %s\n' "$f" >"$d/fail-unqualified-reference-after-the-cap/$cr7/extra-$f.md"; done
+  printf 'Blocked by other-repo#12.\n' >"$d/fail-unqualified-reference-after-the-cap/$cr7/zz-last.md"
   mk fail-not-a-change-request-directory "not a change request directory"
   mkdir -p "$d/fail-not-a-change-request-directory/docs/cr/notes"
   printf 'x\n' >"$d/fail-not-a-change-request-directory/docs/cr/notes/README.md"

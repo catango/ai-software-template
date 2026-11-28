@@ -14,7 +14,8 @@ For every `<root>cr/CR-<n>/` and for `<root>cr/_template/`:
   - every Markdown file of the directory, and every Markdown file directly under `<root>adr/`, writes a reference to another
     repository in a qualified form. Accepted: `#<n>`, `<owner>/<repo>#<n>`, `<repo>:ADR-<n>`. Rejected: `<repo>#<n>` and
     `<repo>/ADR-<n>` (and `<repo>/CR-<n>`), which name a repository without saying whose it is. Link targets, URLs, and fenced
-    code are not read. A bare `ADR-<n>` or `CR-<n>` is a record of this repository.
+    code are not read. A bare `ADR-<n>` or `CR-<n>` is a record of this repository. At most 200 Markdown files are read per
+    directory; more than that is a finding (the check does not pass on files it did not read).
 Any other entry under `<root>cr/` that is a directory or a link is a finding. Findings are "path:line: message".
 """
 import os
@@ -155,13 +156,16 @@ def references(path, text, findings):
 
 
 def markdown_files(directory):
+    """([paths], capped): at most MAX_MARKDOWN_FILES paths; `capped` is true when there are more (bounds the work, never silently)."""
     out = []
     for base, dirs, names in os.walk(directory, followlinks=False):
         dirs.sort()
         for name in sorted(names):
-            if name.endswith(".md") and len(out) < MAX_MARKDOWN_FILES:
+            if name.endswith(".md"):
+                if len(out) == MAX_MARKDOWN_FILES:
+                    return out, True
                 out.append(os.path.join(base, name))
-    return out
+    return out, False
 
 
 def check_cr(root, rel, findings):
@@ -178,7 +182,10 @@ def check_cr(root, rel, findings):
         ids = criteria(f"{rel}/acceptance-criteria.md", texts["acceptance-criteria.md"], findings)
     if "implementation-plan.md" in texts and "acceptance-criteria.md" in texts:
         plan(f"{rel}/implementation-plan.md", texts["implementation-plan.md"], ids, findings)
-    for path in markdown_files(directory):
+    paths, capped = markdown_files(directory)
+    if capped:
+        findings.append(f"{rel}:1: more than {MAX_MARKDOWN_FILES} Markdown files; not all were checked")
+    for path in paths:
         text = read_text(path)
         if text is not None:
             references(os.path.relpath(path, root).replace(os.sep, "/"), text, findings)
