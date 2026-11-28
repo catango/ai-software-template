@@ -185,7 +185,8 @@ def mode_sync(args, tree):
             raise Refused("the manifest of the tag is not valid") from None
         if versions.parse_version(target.version) != wanted:
             raise Refused(f"the manifest of the tag names version {clean(target.version, 20)}, not {tag[1:]}")
-        plan = plan_module.build(tree, state, entries, manifest, release._replace(manifest=target))
+        plan = plan_module.build(tree, state, entries, manifest, release._replace(manifest=target),
+                                 release.reader.paths_at(state.commit))
     finally:
         source.close()
 
