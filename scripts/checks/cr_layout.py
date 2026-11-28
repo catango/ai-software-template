@@ -17,7 +17,8 @@ For every `<root>cr/CR-<n>/` and for `<root>cr/_template/`:
     `<repo>/ADR-<n>` (and `<repo>/CR-<n>`), which name a repository without saying whose it is. Link targets, URLs, and fenced
     code are not read. A bare `ADR-<n>` or `CR-<n>` is a record of this repository. At most 200 Markdown files are read per
     directory; more than that is a finding (the check does not pass on files it did not read).
-Any other entry under `<root>cr/` that is a directory or a link is a finding. Findings are "path:line: message".
+Any other entry under `<root>cr/` that is a directory or a link is a finding; a directory named `.CR-<n>.new-<digits>` is the temporary
+directory of a `new-cr` run that was killed, and its finding says so and that it can be removed. Findings are "path:line: message".
 """
 import os
 import re
@@ -33,6 +34,8 @@ FILES = ("README.md", "impact-analysis.md", "design.md", "acceptance-criteria.md
 MAX_BYTES = 1_000_000
 MAX_MARKDOWN_FILES = 200
 CR_DIR = re.compile(r"CR-[1-9][0-9]*")
+# The hidden directory that `new-cr` writes into before it renames it to CR-<n>/ (`.CR-<n>.new-<pid>`); a killed run leaves it behind.
+INTERRUPTED = re.compile(r"\.CR-[1-9][0-9]*\.new-[0-9]+")
 ID = re.compile(r"[A-Z][A-Za-z0-9]*-[0-9]+")
 ID_ANYWHERE = re.compile(r"(?<![A-Za-z0-9-])[A-Z][A-Za-z0-9]*-[0-9]+(?![A-Za-z0-9-])")
 SEPARATOR = re.compile(r"\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)*\|?")
@@ -210,6 +213,9 @@ def check_root(root, record_root, findings):
             elif os.path.isdir(entry):
                 if name == "_template" or CR_DIR.fullmatch(name):
                     check_cr(root, f"{cr}/{name}", findings)
+                elif INTERRUPTED.fullmatch(name):
+                    findings.append(f"{cr}/{name}:1: left by an interrupted new-cr run (a run that was killed) and not a change request "
+                                    "directory; it can be removed, then run new-cr again")
                 else:
                     findings.append(f"{cr}/{name}:1: not a change request directory (CR-<n> with the issue number, or _template)")
     adr_path = os.path.join(root, record_root + "adr")

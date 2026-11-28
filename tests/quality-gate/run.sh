@@ -1124,6 +1124,12 @@ gen_cr_layout_cases() {
   mk fail-not-a-change-request-directory "not a change request directory"
   mkdir -p "$d/fail-not-a-change-request-directory/docs/cr/notes"
   printf 'x\n' >"$d/fail-not-a-change-request-directory/docs/cr/notes/README.md"
+  mk fail-leftover-of-an-interrupted-new-cr "left by an interrupted new-cr run"
+  mkdir -p "$d/fail-leftover-of-an-interrupted-new-cr/docs/cr/.${CRP}8.new-4242"
+  printf '# x\n' >"$d/fail-leftover-of-an-interrupted-new-cr/docs/cr/.${CRP}8.new-4242/README.md"
+  mk fail-hidden-directory-that-is-not-a-new-cr-leftover "not a change request directory"
+  mkdir -p "$d/fail-hidden-directory-that-is-not-a-new-cr-leftover/docs/cr/.${CRP}8.new-abc"
+  printf '# x\n' >"$d/fail-hidden-directory-that-is-not-a-new-cr-leftover/docs/cr/.${CRP}8.new-abc/README.md"
   mk fail-change-request-number-with-a-leading-zero "not a change request directory"
   mv "$d/fail-change-request-number-with-a-leading-zero/$cr7" "$d/fail-change-request-number-with-a-leading-zero/docs/cr/${CRP}07"
   mk fail-change-request-without-the-prefix "not a change request directory"
@@ -1254,16 +1260,65 @@ test_new_cr() {
   rc_is "new-cr: a skeleton with ${ADP}<n> and a qualified reference is accepted" 0
   kept=$(grep -F 'Recorded in' "$repo/docs/cr/${CRP}50/impact-analysis.md" || true)
   if [[ $kept == "Recorded in ${ADP}<n>, see other-owner/other-repo#<n> and other-repo:${ADP}<n>; this is ${CRP}50, issue #50." ]]; then ok "new-cr: ${ADP}<n> and <owner>/<repo>#<n> keep the <n>; ${CRP}<n> and #<n> are filled in"; else fail "new-cr: ${ADP}<n> and <owner>/<repo>#<n> keep the <n>; ${CRP}<n> and #<n> are filled in" "$kept"; fi
-  # Every <n> of the real skeleton is one of the replaced forms: none is left after the replacement.
-  if ! grep -rqE '<n>|<slug>' "$repo/docs/cr/${CRP}50/README.md" "$repo/docs/cr/${CRP}50/design.md" "$repo/docs/cr/${CRP}50/acceptance-criteria.md" "$repo/docs/cr/${CRP}50/implementation-plan.md"; then ok "new-cr: no <n> is left in the files of the real skeleton"; else fail "new-cr: no <n> is left in the files of the real skeleton"; fi
+  cp "$ROOT/docs/cr/_template/impact-analysis.md" "$skel/impact-analysis.md"
+  # Every <n> of the real skeleton is one of the replaced forms: a separate run on the unmodified skeleton leaves none in any of the
+  # five files (impact-analysis.md included).
+  newcr 51 real-skeleton
+  rc_is "new-cr: the unmodified skeleton is accepted" 0
+  if ! grep -rqE '<n>|<slug>' "$repo/docs/cr/${CRP}51"; then ok "new-cr: no <n> or <slug> is left in any of the five files of the real skeleton"; else fail "new-cr: no <n> or <slug> is left in any of the five files of the real skeleton"; fi
+
+  # A placeholder that the script does not fill in is refused, never written: the Markdown forms around ${CRP}<n> and #<n> are filled in,
+  # a form that names another repository's record (or is not a word of its own) is refused with file and line, nothing is written.
+  local form want counter=60 last_line before_forms
+  tree() { (cd "$repo" && find . -path ./.git -prune -o -print | LC_ALL=C sort | sha256sum); }
+  line_with() { # line_with TEXT: the skeleton's impact-analysis.md gets one more line
+    cp "$ROOT/docs/cr/_template/impact-analysis.md" "$skel/impact-analysis.md"
+    printf '\n%s\n' "$1" >>"$skel/impact-analysis.md"
+  }
+  last_line=$(($(wc -l <"$ROOT/docs/cr/_template/impact-analysis.md") + 2))
+  while IFS='|' read -r form want; do
+    counter=$((counter + 1))
+    line_with "Form: $form"
+    newcr "$counter" forms
+    rc_is "new-cr: the form '$form' is filled in" 0
+    kept=$(grep -F 'Form:' "$repo/docs/cr/${CRP}$counter/impact-analysis.md" || true)
+    if [[ $kept == "Form: ${want//N/$counter}" ]]; then ok "new-cr: '$form' becomes '${want//N/$counter}'"; else fail "new-cr: '$form' becomes '${want//N/$counter}'" "$kept"; fi
+  done <<FORMS
+**${CRP}<n>**|**${CRP}N**
+"${CRP}<n>"|"${CRP}N"
+'${CRP}<n>'|'${CRP}N'
+_${CRP}<n>_|_${CRP}N_
+~~${CRP}<n>~~|~~${CRP}N~~
+docs/cr/${CRP}<n>/design.md|docs/cr/${CRP}N/design.md
+(${CRP}<n>, #<n>)|(${CRP}N, #N)
+**#<n>**|**#N**
+_#<n>_|_#N_
+"#<n>"|"#N"
+a,#<n>|a,#N
+FORMS
+  before_forms=$(tree)
+  for form in "other-repo/${CRP}<n>" "other-repo:${CRP}<n>" "see x/y/${CRP}<n>/design.md" "(${CRP}<n><slug>)" "#<n>x" "${CRP}<n>x"; do
+    line_with "Form: $form"
+    newcr 90 refused
+    rc_is "new-cr: the form '$form' is refused" 1
+    out_has "new-cr: the refusal of '$form' names the file and the line" "docs/cr/_template/impact-analysis.md:$last_line"
+    if [[ $before_forms == "$(tree)" ]]; then ok "new-cr: nothing is written, and no temporary directory is left, for '$form'"; else fail "new-cr: nothing is written, and no temporary directory is left, for '$form'"; fi
+  done
+  line_with "Form: other-repo/${CRP}<n>"
+  newcr --dry-run 91 refused
+  rc_is "new-cr --dry-run refuses a placeholder that is left" 1
+  # the kept forms stay accepted, also with a placeholder owner and repository name
+  line_with "Form: ${ADP}<n>, other-repo:${ADP}<n>, <owner>/<repo>#<n>, other-owner/other-repo#<n>, <repo>:${ADP}<n>"
+  newcr 92 kept-forms
+  rc_is "new-cr: ${ADP}<n>, <repo>:${ADP}<n>, and <owner>/<repo>#<n> are still accepted" 0
   cp "$ROOT/docs/cr/_template/impact-analysis.md" "$skel/impact-analysis.md"
 
   # a write error part way leaves nothing behind (never what existed before), and the next run succeeds
-  newcr_failing() { # newcr_failing N SLUG K: scripts/new-cr with the K-th file write failing (disk full)
+  newcr_failing() { # newcr_failing N SLUG K [rmtree|rmdir]: scripts/new-cr with the K-th file write failing (disk full), and optionally the cleanup failing too
     RC=0
-    OUT=$(cd "$repo" && python3 -I -B - "$1" "$2" "$3" 2>&1 <<'PY'
-import builtins, errno, importlib.machinery, importlib.util, sys
-number, slug, nth = sys.argv[1], sys.argv[2], int(sys.argv[3])
+    OUT=$(cd "$repo" && python3 -I -B - "$1" "$2" "$3" "${4:-}" 2>&1 <<'PY'
+import builtins, errno, importlib.machinery, importlib.util, pathlib, sys
+number, slug, nth, cleanup = sys.argv[1], sys.argv[2], int(sys.argv[3]), sys.argv[4]
 loader = importlib.machinery.SourceFileLoader("new_cr", "scripts/new-cr")
 module = importlib.util.module_from_spec(importlib.util.spec_from_loader("new_cr", loader))
 loader.exec_module(module)
@@ -1275,11 +1330,16 @@ def failing(path, mode="r", *args, **kwargs):
             raise OSError(errno.ENOSPC, "No space left on device")
     return real(path, mode, *args, **kwargs)
 builtins.open = failing
+def busy(*args, **kwargs):
+    raise OSError(errno.EBUSY, "Device or resource busy")
+if cleanup == "rmtree":
+    module.shutil.rmtree = busy
+if cleanup == "rmdir":
+    pathlib.Path.rmdir = busy
 sys.exit(module.main([number, slug]))
 PY
     ) || RC=$?
   }
-  tree() { (cd "$repo" && find . -path ./.git -prune -o -print | LC_ALL=C sort | sha256sum); }
   before=$(tree)
   newcr_failing 40 third-fails 3
   rc_is "new-cr: a write error on the third file is refused" 1
@@ -1292,7 +1352,21 @@ PY
   newcr_failing 41 first-fails 1
   rc_is "new-cr: a write error on the first file is refused" 1
   if [[ ! -e $repo/docs/cr/${CRP}41 ]]; then ok "new-cr: nothing is left after a write error on the first file"; else fail "new-cr: nothing is left after a write error on the first file"; fi
+  # a cleanup that fails is reported, with the path that is left (never "nothing was left behind")
+  newcr_failing 43 stuck-temporary 3 rmtree
+  rc_is "new-cr: a write error whose cleanup fails is refused" 1
+  out_has "new-cr: the failed cleanup names the temporary directory that is left" "remove docs/cr/.${CRP}43.new-"
+  if [[ $OUT != *"nothing was left behind"* ]]; then ok "new-cr: a failed cleanup does not claim that nothing was left behind"; else fail "new-cr: a failed cleanup does not claim that nothing was left behind" "$OUT"; fi
+  if [[ -n $(find "$repo/docs/cr" -maxdepth 1 -name ".${CRP}43.new-*") ]]; then ok "new-cr: the leftover named in the message is there"; else fail "new-cr: the leftover named in the message is there"; fi
+  find "$repo/docs/cr" -maxdepth 1 -name ".${CRP}43.new-*" -exec rm -rf {} +
   printf 'schema_version: 1\nworkflow:\n  docs_roots:\n    - "fresh/"\n' >"$repo/config/project.yaml"
+  before=$(tree)
+  newcr_failing 44 stuck-parent 3 rmdir
+  rc_is "new-cr: a write error whose directory removal fails is refused" 1
+  out_has "new-cr: the failed removal names the directory this run made and could not remove" "remove fresh/cr"
+  if [[ $OUT != *"nothing was left behind"* && -d $repo/fresh/cr ]]; then ok "new-cr: the directory named in the message is there, and nothing is claimed"; else fail "new-cr: the directory named in the message is there, and nothing is claimed" "$OUT"; fi
+  rm -rf "$repo/fresh"
+  if [[ $before == "$(tree)" ]]; then ok "new-cr: the temporary directory is removed even when a parent cannot be"; else fail "new-cr: the temporary directory is removed even when a parent cannot be"; fi
   before=$(tree)
   newcr_failing 42 new-root 3
   rc_is "new-cr: a write error in a root that has no cr/ directory is refused" 1
