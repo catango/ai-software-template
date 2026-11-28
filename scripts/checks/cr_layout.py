@@ -135,7 +135,7 @@ def plan(path, text, ids, findings):
         return
     column, rows = table
     # A token is a criterion reference when its prefix is one that acceptance-criteria.md uses (`AC-` in `AC-1`); an ID-shaped word
-    # with another prefix (`PC-8`, `ADR-5`) is prose. A defined prefix with an undefined number (`AC-99`) is still a finding.
+    # with another prefix (`PC-8`) is prose. A defined prefix with an undefined number (`AC-99`) is still a finding.
     prefixes = {value.rsplit("-", 1)[0] for value in ids}
     for number, row in rows:
         tokens = ID_ANYWHERE.findall(plain(row[column]) if column < len(row) else "")
