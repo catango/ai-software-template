@@ -77,9 +77,40 @@ class Workflow(unittest.TestCase):
 
     def test_the_base_run_list_is_exactly_the_checks_with_a_policy_input_from_the_base(self):
         # PR #6 (follow-up spec): operator-contract is on the list; claude-md and deny-list are not (nothing to read from the base);
-        # cr-layout reads docs_roots from the base configuration like operator-contract reads operator_paths.
+        # cr-layout reads docs_roots from the base configuration like operator-contract reads operator_paths; owned-drift reads the
+        # hashes of state.toml from the base commit (follow-up of row 8). dependabot-config is still to come.
         found = re.search(r"for id in ([^;\n]+); do", self.text).group(1).split()
-        self.assertEqual(found, ["workflow-policy", '"no-cl""aude-in-workflows"', "forbidden-api", "operator-contract", "cr-layout"])
+        self.assertEqual(found, ["workflow-policy", '"no-cl""aude-in-workflows"', "forbidden-api", "operator-contract", "cr-layout", "owned-drift"])
+
+    def step_text(self, name="Run the policy checks of the base against the head"):
+        start = next(i for i, line in enumerate(self.lines) if line.strip() == f"- name: {name}")
+        end = next((i for i in range(start + 1, len(self.lines)) if self.lines[i].startswith("      - ")), len(self.lines))
+        return self.lines[start:end]
+
+    def test_the_branch_name_reaches_the_policy_step_only_through_env(self):
+        # The branch name is attacker-controlled text: env of that one step, never the script text, never another step.
+        expression = "GATE_HEAD_REF: ${{ github.event.pull_request.head.ref }}"
+        self.assertEqual(self.text.count("github.event.pull_request.head.ref"), 1)
+        self.assertEqual(self.text.count(expression), 1)
+        step = self.step_text()
+        env = step.index("        env:")
+        run = step.index("        run: |")
+        self.assertIn(f"          {expression}", step[env:run])
+        self.assertIn("          GATE_BASE_REF: ${{ github.event.pull_request.base.sha }}", step[env:run])
+        for line in step[run:]:
+            self.assertNotIn("${{", line)
+            self.assertNotIn("head.ref", line)
+
+    def test_the_base_checkout_has_full_history_and_the_fetch_into_head_is_not_shallow(self):
+        checkouts = re.findall(r"(?ms)- uses: actions/checkout@\S+ # v\S+\n        with:\n(.*?)(?=\n\n|\n      - name:|\Z)", self.text)
+        base, head = checkouts
+        self.assertIn("          fetch-depth: 0\n", base + "\n")
+        self.assertNotIn("fetch-depth", head)
+        step = "\n".join(self.step_text())
+        fetches = [line for line in step.splitlines() if "fetch" in line and "git -C head" in line]
+        self.assertEqual(len(fetches), 1, fetches)
+        self.assertNotIn("--depth", fetches[0])
+        self.assertIn('"$base" "$GATE_BASE_REF"', fetches[0])
 
     def test_timeout_and_concurrency(self):
         self.assertIn("timeout-minutes:", self.text)

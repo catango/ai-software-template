@@ -4,20 +4,24 @@ The step is cut out of pr-contract.yml and run in a throw-away layout that looks
 directory (with the checkers) and the head checkout is `head/`, a separate repository that does not contain the base commit.
 Needs `yq` (as workflow-policy does); the tests are skipped where it is not installed.
 """
+import hashlib
 import os
 import pathlib
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 
 import helpers
 
 ROOT = helpers.ROOT
+sys.path.insert(0, str(ROOT / "scripts" / "lib"))
+from template_sync import state as state_module  # noqa: E402  (renders the state.toml of the owned-drift tests)
 WORKFLOW = ROOT / ".github" / "workflows" / "pr-contract.yml"
 STEP = "Run the policy checks of the base against the head"
-CHECKS = ("workflow-policy", "no-claude-in-workflows", "forbidden-api", "operator-contract", "cr-layout")
+CHECKS = ("workflow-policy", "no-claude-in-workflows", "forbidden-api", "operator-contract", "cr-layout", "owned-drift")
 BASE_CONFIG = """schema_version: 1
 workflow:
   design_repos: []
@@ -33,6 +37,15 @@ GIT_ENV = {
     "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_SYSTEM": "/dev/null", "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "noreply",
     "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "noreply",
 }
+STATE = ".template/state.toml"
+OVERRIDES = ".template/overrides.toml"
+OWNED = "scripts/owned-file.txt"
+OWNED_SH = "scripts/checks/owned-drift.sh"
+OWNED_PY = "scripts/checks/owned_drift.py"
+SOURCE = "example-owner/software-template"
+COMMIT = "0" * 40
+# What a hostile branch name could do if it were ever parsed by a shell: run, redirect, substitute, or end the word.
+HOSTILE_REF = "x;touch planted-1;$(touch planted-2)`touch planted-3`|touch planted-4\"'>planted-5 #"
 PASSING_CI = (ROOT / "tests/quality-gate/fixtures/workflow-policy/pass-aggregate/.github/workflows/ci.yml").read_text()
 PASSING_PR_CONTRACT = (ROOT / "tests/quality-gate/fixtures/workflow-policy/pass-required-names/.github/workflows/pr-contract.yml").read_text()
 
@@ -89,6 +102,22 @@ class PolicyCommands(unittest.TestCase):
             write(self.head, relative, (self.base / relative).read_text())
         git(self.head, "init", "-q")
         commit(self.head)
+
+    def seed_owned(self, version="1.0.0"):
+        """The base commit gets a state.toml that records three owned files (one plain file and the two files of owned-drift) as they are, and
+        the head repository gets the same files and the same state."""
+        self.files = {OWNED: "one\n", OWNED_SH: (self.base / OWNED_SH).read_text(), OWNED_PY: (self.base / OWNED_PY).read_text()}
+        write(self.base, OWNED, self.files[OWNED])
+        write(self.base, STATE, self.state_text(version, self.files))
+        self.base_sha = commit(self.base)
+        for relative, text in {**self.files, STATE: (self.base / STATE).read_text()}.items():
+            write(self.head, relative, text)
+        commit(self.head)
+
+    @staticmethod
+    def state_text(version, files, drop=()):
+        owned = {path: hashlib.sha256(text.encode()).hexdigest() for path, text in files.items() if path not in drop}
+        return state_module.render(SOURCE, version, COMMIT, owned, {})
 
     def head_edit(self, relative, text):
         write(self.head, relative, text)
@@ -206,6 +235,105 @@ class PolicyCommands(unittest.TestCase):
         result = self.run_step()
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertIn("cr-layout: failed", result.stdout + result.stderr)
+
+    def test_an_owned_file_changed_with_a_state_rewritten_to_match_fails_on_an_ordinary_branch(self):
+        # the hashes come from the base commit, so a head that rewrites state.toml to match its own change gains nothing
+        self.seed_owned()
+        changed = {**self.files, OWNED: "two\n"}
+        write(self.head, STATE, self.state_text("1.0.0", changed))
+        self.head_edit(OWNED, "two\n")
+        result = self.run_step(GATE_HEAD_REF="feature/change-it")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("pr-contract: owned-drift: failed", result.stdout)
+        self.assertIn(f"{OWNED}:1: owned file changed without an entry in {OVERRIDES}", result.stdout)
+        self.assertIn("pr-contract: workflow-policy: ok", result.stdout)
+
+    def test_a_head_that_leaves_the_owned_files_alone_passes(self):
+        self.seed_owned()
+        result = self.run_step(GATE_HEAD_REF="feature/other-work")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("pr-contract: owned-drift: ok", result.stdout)
+
+    def test_a_pr_that_replaces_owned_drift_and_adds_an_entry_for_its_own_change_still_fails(self):
+        # the head replaces both files of the checker with ones that find nothing, declares those two changes in its own overrides.toml, and
+        # changes another owned file without an entry; the checker of the base commit judges, so the last change is found
+        self.seed_owned()
+        write(self.head, OWNED_SH, "#!/usr/bin/env bash\nexit 0\n")
+        write(self.head, OWNED_PY, "import sys\nsys.exit(0)\n")
+        write(self.head, OVERRIDES, "".join(
+            f'[[override]]\npath = "{path}"\nreason = "replaced"\npr = "example-owner/sample-app#7"\n\n' for path in (OWNED_SH, OWNED_PY)))
+        self.head_edit(OWNED, "two\n")
+        result = self.run_step(GATE_HEAD_REF="feature/weaken")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("pr-contract: owned-drift: failed", result.stdout)
+        self.assertIn(f"{OWNED}:1: owned file changed without an entry", result.stdout)
+        self.assertNotIn(f"{OWNED_SH}:1", result.stdout)  # the entries are honoured: it is the unlisted change that fails
+
+    def test_a_sync_branch_with_a_consistent_state_passes_and_the_same_name_with_a_dropped_hash_fails(self):
+        # the fixes of the template-sync PR: the exemption needs the state and the files to agree, and a path may not leave [owned] while present
+        self.seed_owned()
+        changed = {**self.files, OWNED: "two\n"}
+        write(self.head, STATE, self.state_text("1.1.0", changed))
+        self.head_edit(OWNED, "two\n")
+        result = self.run_step(GATE_HEAD_REF="template-sync/v1.1.0")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("pr-contract: owned-drift: ok", result.stdout)
+        # the same branch name with a tampered file whose hash is dropped from [owned]
+        write(self.head, STATE, self.state_text("1.1.0", changed, drop=(OWNED,)))
+        self.head_edit(OWNED, "tampered\n")
+        result = self.run_step(GATE_HEAD_REF="template-sync/v1.1.0")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("pr-contract: owned-drift: failed", result.stdout)
+        self.assertIn(f"{OWNED}:1: dropped from [owned] of {STATE} but still present", result.stdout)
+
+    def test_a_sync_branch_name_without_the_matching_state_is_not_exempt(self):
+        # the branch says 1.1.0 and the state says 1.0.0, or the branch is only a lookalike
+        self.seed_owned()
+        write(self.head, STATE, self.state_text("1.0.0", {**self.files, OWNED: "two\n"}))
+        self.head_edit(OWNED, "two\n")
+        for ref in ("template-sync/v1.1.0", "template-sync/v1.1.0-x", "xtemplate-sync/v1.1.0", "template-sync/v1.1.0\n"):
+            with self.subTest(ref=ref):
+                result = self.run_step(GATE_HEAD_REF=ref)
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertIn("pr-contract: owned-drift: failed", result.stdout)
+
+    def test_the_branch_name_is_taken_from_gate_head_ref_before_github_head_ref(self):
+        self.seed_owned()
+        write(self.head, STATE, self.state_text("1.1.0", {**self.files, OWNED: "two\n"}))
+        self.head_edit(OWNED, "two\n")
+        result = self.run_step(GATE_HEAD_REF="feature/x", GITHUB_HEAD_REF="template-sync/v1.1.0")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        result = self.run_step(GITHUB_HEAD_REF="template-sync/v1.1.0")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_a_missing_owned_drift_on_the_base_commit_fails_like_any_other_checker(self):
+        self.seed_owned()
+        (self.base / OWNED_SH).unlink()
+        result = self.run_step()
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("pr-contract: the checker owned-drift is missing on the base commit", result.stdout)
+        self.assertIn("pr-contract: workflow-policy: ok", result.stdout)
+
+    def test_a_branch_name_with_shell_metacharacters_is_plain_text(self):
+        self.seed_owned()
+        refs = (HOSTILE_REF, "$(touch planted-2)", "--base=HEAD", "--head-ref=template-sync/v1.1.0", "-x")
+        expected = [f"{OWNED}:1: owned file changed without an entry in {OVERRIDES}"]
+        for changed in (False, True):
+            if changed:
+                write(self.head, STATE, self.state_text("1.0.0", {**self.files, OWNED: "two\n"}))
+                self.head_edit(OWNED, "two\n")
+            for ref in refs:
+                with self.subTest(ref=ref, changed=changed):
+                    result = self.run_step(GATE_HEAD_REF=ref)
+                    shown = result.stdout + result.stderr
+                    if changed:
+                        self.assertEqual(result.returncode, 1, shown)
+                        self.assertEqual(re.findall(r"(?m)^  (.+)$", result.stdout), expected)
+                    else:
+                        self.assertEqual(result.returncode, 0, shown)
+                        self.assertIn("pr-contract: owned-drift: ok", shown)
+                    for tree in (self.base, self.head, self.tmp, pathlib.Path.cwd()):
+                        self.assertEqual(sorted(path.name for path in tree.glob("planted*")), [], tree)
 
     def test_the_checks_without_a_policy_input_to_read_from_the_base_are_not_on_the_list(self):
         # claude-md and deny-list compare files of the head with each other (CLAUDE.md with state.toml, required-deny.txt with
