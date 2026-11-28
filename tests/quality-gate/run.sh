@@ -2,7 +2,8 @@
 # Tests for scripts/quality-gate.sh and scripts/checks/*.sh.
 # Usage: tests/quality-gate/run.sh [check-id | dispatcher | classes | workflow-policy ...]   (no arguments: everything)
 # Fixtures live in tests/quality-gate/fixtures/<check-id>/<pass-*|fail-*>/. A fail case may hold
-# an EXPECT file (substring that must appear in the findings). Fixtures that would contain
+# an EXPECT file (substring that must appear in the findings) and a NOECHO file (text that no finding may repeat; the name avoids the
+# word that the leak scan reads as a credential assignment in the hashes of state.toml). Fixtures that would contain
 # forbidden patterns (public-repo-hygiene) are generated here from fragments.
 # The catalogue of check classes is tests/quality-gate/catalogue.tsv; the class fixtures are fixtures/_class/<case>/zz-fixture.sh.
 set -euo pipefail
@@ -65,13 +66,14 @@ contains() { grep -qF -- "$2" <<<"$1"; }
 
 # ---------------------------------------------------------------- check fixtures
 
-list_files() { (cd "$1" && find . -type f ! -name EXPECT ! -name SECRET | sed 's|^\./||' | LC_ALL=C sort); }
+list_files() { (cd "$1" && find . -type f ! -name EXPECT ! -name NOECHO | sed 's|^\./||' | LC_ALL=C sort); }
 
-# unfixture DIR: a fixture file named CLAUDE.md.fixture or CLAUDE.local.md.fixture becomes the file without the suffix, so that the
-# tracked tree holds no instruction file of that name (the gate's claude-md check sees the whole tree, fixtures included).
+# unfixture DIR: a fixture file named CLAUDE.md.fixture, CLAUDE.local.md.fixture or CODEOWNERS.fixture becomes the file without the suffix,
+# so that the tracked tree holds no instruction file of that name (the gate's claude-md check sees the whole tree, fixtures included) and
+# no CODEOWNERS that is not the one allowed line (public-repo-hygiene reads every file of that name, fixtures included).
 unfixture() {
   local f
-  while IFS= read -r -d '' f; do mv "$f" "${f%.fixture}"; done < <(find "$1" -type f \( -name 'CLAUDE.md.fixture' -o -name 'CLAUDE.local.md.fixture' \) -print0)
+  while IFS= read -r -d '' f; do mv "$f" "${f%.fixture}"; done < <(find "$1" -type f \( -name 'CLAUDE.md.fixture' -o -name 'CLAUDE.local.md.fixture' -o -name 'CODEOWNERS.fixture' \) -print0)
 }
 
 run_dir() { # id name dir
@@ -113,7 +115,7 @@ run_dir() { # id name dir
         fail "$id/$name" "findings of another rule than ${BASH_REMATCH[1]}: $(grep -vF ": ${BASH_REMATCH[1]}: " <<<"$out" | head -n 1)"
         return
       fi
-      if [[ -f $dir/SECRET ]] && contains "$out" "$(<"$dir/SECRET")"; then
+      if [[ -f $dir/NOECHO ]] && contains "$out" "$(<"$dir/NOECHO")"; then
         fail "$id/$name" "a finding echoes file content"
         return
       fi
@@ -129,7 +131,7 @@ gen_hygiene_cases() {
     mkdir -p "$d/$1/$(dirname "$rel")"
     printf '%s\n' "$3" >"$d/$1/$rel"
     printf '%s\n' "$2" >"$d/$1/EXPECT"
-    printf '%s\n' "$3" >"$d/$1/SECRET"
+    printf '%s\n' "$3" >"$d/$1/NOECHO"
   }
   mk fail-cloud-resource-id "identifier" "$(printf 'oc%s%s.%s.%s.%s.%s' id 1 instance oc1 uk-london-1 "$(rep 20 a)")"
   mk fail-private-ipv4 "IPv4" "$(printf '%s.%s.%s.%s' 10 0 0 7)"
@@ -307,7 +309,7 @@ test_dispatcher() {
   # --list, --only, --skip, --base
   gate "$repo" --list
   rc_is "--list exits 0" 0
-  expected="bash-hygiene shellcheck public-repo-hygiene workflow-policy forbidden-api no-claude-in-workflows links yaml markdown size-budget actionlint claude-md deny-list owned-drift toolchain python operator-contract cr-layout gate-tests"
+  expected="bash-hygiene shellcheck public-repo-hygiene codeowners workflow-policy dependabot-config forbidden-api no-claude-in-workflows links yaml markdown size-budget actionlint claude-md deny-list owned-drift toolchain python operator-contract cr-layout gate-tests"
   n=$(awk '{print $1}' <<<"$OUT" | grep -Ev '^(ID|CHECK)$' | tr '\n' ' ' | sed 's/ $//')
   if [[ $n == "$expected" ]]; then ok "--list shows check ids in order"; else fail "--list shows check ids in order" "got: $n"; fi
   out_has "--list shows the tool" "shellcheck"
@@ -391,7 +393,11 @@ test_dispatcher() {
   repo=$(new_repo)
   good_script "$repo" good.sh
   printf '# T\n\n[a](good.sh)\n' >"$repo/README.md"
+  # the whole gate also runs codeowners and dependabot-config, which need the seeded files and the approver of the configuration
+  printf 'schema_version: 1\ngithub:\n  approver_login: "example-approver"\nworkflow:\n  operator_paths: []\n' >"$repo/config/project.yaml"
   mkdir -p "$repo/.github/workflows"
+  printf '* @example-approver\n' >"$repo/.github/CODEOWNERS"
+  printf 'version: 2\nupdates:\n  - package-ecosystem: github-actions\n    directory: /\n    schedule:\n      interval: weekly\n' >"$repo/.github/dependabot.yml"
   printf 'name: x\non: push\npermissions: {}\njobs:\n  quality-gate:\n    runs-on: ubuntu-latest\n    timeout-minutes: 5\n    steps:\n      - run: echo hi\n' >"$repo/.github/workflows/ci.yml"
   commit_all "$repo"
   RC=0

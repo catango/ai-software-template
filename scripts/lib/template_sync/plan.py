@@ -3,14 +3,21 @@
 For every path of the tag that its own manifest classes `owned`, the project's file is overwritten (also when it was changed locally
 and no entry of `.template/overrides.toml` names it), added, or kept as it is because an entry names it. A path recorded in `state.toml`
 that the tag no longer ships as owned is removed. A `seeded` file is never changed or removed; a seeded path that is new to the project
-(its own manifest has no seeded pattern for it) and absent from the tree is added once. Template-only paths never arrive, and neither does
+and absent from the tree is added once. "New" means that the project's own manifest has no seeded pattern for the path, or lists it
+by its exact name and the template commit recorded in `state.toml` did not have the file (a manifest names a file before a release
+ships it). `.github/CODEOWNERS` is written from the `approver_login` of the project's own `config/project.yaml`, never from the tag's
+file, which names the template's approver. Template-only paths never arrive, and neither does
 `.template/state.toml` or `.template/overrides.toml` from the tag. A change that rule TC-1 would reject is refused, not made.
 """
 import hashlib
 import os
+import re
 import stat
 from collections import namedtuple
 from pathlib import Path
+
+from cr_tools.identity import read_identities
+from pr_contract.errors import ConfigError
 
 from . import fsops, settings, state as state_module, uses_drift
 from .errors import Refused
@@ -19,6 +26,10 @@ STATE = ".template/state.toml"
 OVERRIDES = ".template/overrides.toml"
 SETTINGS = ".claude/settings.json"
 DENY_LIST = ".claude/deny.platform.txt"
+CODEOWNERS = ".github/CODEOWNERS"
+PROJECT_CONFIG = "config/project.yaml"
+# The login form of the gate check `codeowners` (it also ends in a letter or digit).
+CODEOWNERS_LOGIN = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?")
 WORKFLOW_PREFIXES = (".github/workflows/", ".github/actions/")
 REGULAR = ("100644", "100755")
 CAP = 10
@@ -50,9 +61,32 @@ def _local(tree, path):
     return target.read_bytes(), bool(info.st_mode & 0o111)
 
 
-def build(tree, state, entries, local_manifest, release):
+def _codeowners(tree):
+    """The bytes of the one CODEOWNERS line for the approver of the project's configuration, or None when it names no valid one."""
+    local = _local(tree, PROJECT_CONFIG)
+    if local is None:
+        return None
+    try:
+        login = read_identities(local[0].decode("utf-8")).approver_login
+    except (ConfigError, UnicodeDecodeError):
+        return None
+    if not CODEOWNERS_LOGIN.fullmatch(login):
+        return None
+    return f"* @{login}\n".encode()
+
+
+def _is_new_seeded(path, local_manifest, base_paths):
+    """A seeded path of the tag that the project lacks is added when its manifest has no seeded pattern for it, or lists it by
+    its exact name while the recorded template commit (`base_paths`, None when unknown) did not have the file."""
+    if local_manifest.classify(path) != ["seeded"]:
+        return True
+    return base_paths is not None and path in local_manifest.classes.get("seeded", ()) and path not in base_paths
+
+
+def build(tree, state, entries, local_manifest, release, base_paths=None):
     """The Plan for syncing the project in `tree` (recorded `state`, `entries` of overrides.toml, `local_manifest` of the project) to
-    `release` (a source.Release). Raises Refused."""
+    `release` (a source.Release). `base_paths` is the set of paths of the template commit recorded in `state`, None when it is not
+    known. Raises Refused."""
     target = release.manifest
     classes, bad_class, bad_type = {}, {"none": [], "many": []}, []
     for path, (mode, kind, _) in release.entries.items():
@@ -135,9 +169,15 @@ def build(tree, state, entries, local_manifest, release):
             removals.append(path)
 
     for path in seeded_target:
-        if path in (STATE, OVERRIDES) or _local(tree, path) is not None or local_manifest.classify(path) == ["seeded"]:
+        if path in (STATE, OVERRIDES) or _local(tree, path) is not None or not _is_new_seeded(path, local_manifest, base_paths):
             continue
-        writes[path] = (blobs[path], release.entries[path][0] == "100755")
+        data = blobs[path]
+        if path == CODEOWNERS:
+            data = _codeowners(tree)
+            if data is None:
+                notes.append(f"{path} is new in the tag but was not added: {PROJECT_CONFIG} has no valid approver_login to write it from")
+                continue
+        writes[path] = (data, release.entries[path][0] == "100755")
         changes.append(Change(path, "seeded"))
 
     unused = sorted(path for path in entries if path not in honoured)

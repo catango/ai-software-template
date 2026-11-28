@@ -10,6 +10,8 @@ the `leak` test).
 import ast
 import importlib.machinery
 import re
+import shutil
+import subprocess
 import tomllib
 import types
 import unittest
@@ -231,9 +233,38 @@ class GenerationTests(TempDirTestCase):
         readme = (tree / "README.md").read_text()
         self.assertIn("sample-app", readme)
         self.assertNotIn("SENTINEL", readme)
-        for rel in ("docs/README.md", "config/project.yaml", "docs/PLATFORM.md",
+        for rel in ("docs/README.md", "config/project.yaml", "docs/PLATFORM.md", ".github/CODEOWNERS",
                     ".claude/deny.platform.txt", ".template/state.toml"):
             self.assertTrue((tree / rel).is_file(), rel)
+
+    def test_codeowners_is_one_line_for_the_configured_approver(self):
+        # The template's own file names the template's approver; the generated one names the approver of the configuration.
+        template_line = (helpers.ROOT / ".github" / "CODEOWNERS").read_text()
+        for name, login in (("neutral", "example-approver"), ("second", "example-lead")):
+            with self.subTest(config=name):
+                tree, result = self.generate(name, {".github/CODEOWNERS": "* @someone-else\n"})
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual((tree / ".github" / "CODEOWNERS").read_bytes(), f"* @{login}\n".encode())
+                self.assertNotIn(template_line.strip(), (tree / ".github" / "CODEOWNERS").read_text())
+
+    def test_the_gate_checks_of_the_seeded_files_pass_in_a_generated_tree(self):
+        for name in helpers.CONFIGS:
+            for check, tool in (("codeowners", None), ("dependabot-config", "yq")):
+                with self.subTest(config=name, check=check):
+                    if tool and shutil.which(tool) is None:
+                        self.skipTest(f"{tool} is not installed")
+                    tree, result = self.generate(name)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    done = subprocess.run(["bash", str(tree / "scripts" / "checks" / f"{check}.sh")], input=".github/CODEOWNERS\n.github/dependabot.yml\n",
+                                          cwd=tree, capture_output=True, text=True)
+                    self.assertEqual((done.returncode, done.stdout + done.stderr), (0, ""))
+
+    def test_codeowners_is_written_when_the_copy_has_none(self):
+        tree = helpers.export_template(self.make_dir() / "tree")
+        (tree / ".github" / "CODEOWNERS").unlink()
+        result = helpers.run_init(tree, helpers.SECOND)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((tree / ".github" / "CODEOWNERS").read_text(), "* @example-lead\n")
 
     def test_the_docs_locator_is_the_template_file_and_only_that(self):
         # one source: the tracked docs/README.md. init keeps it byte for byte and writes no second version of it.
@@ -361,6 +392,7 @@ class GenerationTests(TempDirTestCase):
         self.assertTrue((tree / "template-dev").is_dir())
         self.assertIn("template-dev/extra/f.txt", result.stdout)
         self.assertIn("config/project.yaml", result.stdout)
+        self.assertIn("write  .github/CODEOWNERS", result.stdout)
         self.assertIn("dry run", result.stdout.lower())
 
     def test_invalid_configuration_is_refused_before_anything_is_written(self):
@@ -387,6 +419,13 @@ class GenerationTests(TempDirTestCase):
             "docs root without a slash": good.replace("operator_paths = []", 'operator_paths = []\ndocs_roots = ["docs"]'),
             "empty docs roots": good.replace("operator_paths = []", 'operator_paths = []\ndocs_roots = []'),
             "duplicate docs roots": good.replace("operator_paths = []", 'operator_paths = []\ndocs_roots = ["docs/", "docs/"]'),
+            "approver login with a trailing hyphen": good.replace('approver_login = "example-approver"', 'approver_login = "example-approver-"'),
+            "approver login with a leading hyphen": good.replace('approver_login = "example-approver"', 'approver_login = "-example-approver"'),
+            "approver login with a space": good.replace('approver_login = "example-approver"', 'approver_login = "example approver"'),
+            "approver login with an at sign": good.replace('approver_login = "example-approver"', 'approver_login = "@example-approver"'),
+            "approver login with a second owner": good.replace('approver_login = "example-approver"', 'approver_login = "example-approver @other"'),
+            "approver login with a line break": good.replace('approver_login = "example-approver"', 'approver_login = "example-approver\\n* @other"'),
+            "approver login of 40 characters": good.replace('approver_login = "example-approver"', 'approver_login = "' + "a" * 40 + '"'),
             "same approver and machine": good.replace('machine_login = "example-machine"', 'machine_login = "example-approver"'),
             "absolute preset path": good + '\n[preset]\nplatform_doc = "/etc/hostname"\n',
             "preset path leaves directory": good + '\n[preset]\nplatform_doc = "../neutral.toml"\n',

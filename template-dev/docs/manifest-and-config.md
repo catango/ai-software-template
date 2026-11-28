@@ -56,7 +56,7 @@ from fragments at run time, so no identifier-shaped value is committed.
   `template-only` paths and the directories they leave empty; write the seeded files; write
   `.template/state.toml` last (version, source, SHA-256 of every owned file, empty
   `[overrides]`).
-- A seeded file that the copy already has (`README.md`, `config/project.yaml`, `docs/PLATFORM.md`,
+- A seeded file that the copy already has (`README.md`, `config/project.yaml`, `.github/CODEOWNERS`, `docs/PLATFORM.md`,
   `.claude/deny.platform.txt`) is overwritten from the configuration. `docs/README.md` and `docs/PROJECT.md` are seeded files
   that the template carries and `initialize-project` keeps as they are (plan row 5 moved the locator out of the script: the
   tracked file is the only source; init refuses a tree where it is missing).
@@ -68,6 +68,30 @@ from fragments at run time, so no identifier-shaped value is committed.
 - It prints the configured post-init actions, then the rulesets for a public repository or a
   note for a private one. It imports only local-file modules and starts no process; the
   `manifest` test checks that on the syntax tree.
+
+## Seeded community and security files
+
+The manifest classes three files as seeded that the template now carries: `.github/dependabot.yml`, `.github/CODEOWNERS`, and
+`SECURITY.md`. They are written once and are the project's from then on.
+
+- `.github/dependabot.yml`: version updates only, an entry for `github-actions` on `/`. It names no other ecosystem: the template has
+  no `builder` Python profile, only the CI manifest and `toolchain/python/ci.in` and `ci.lock`. A project adds an entry for each
+  ecosystem it uses. Nothing is merged automatically (rule PC-7 governs the `dependabot/` branches). The gate check
+  `dependabot-config` rejects a file without the Actions entry or with `open-pull-requests-limit: 0`.
+- `.github/CODEOWNERS`: exactly `* @<approver_login>`. The template's own copy names the template's approver. `initialize-project`
+  writes the line again from `github.approver_login` of the configuration it is given (also in the dry run listing); a generated tree
+  never keeps the template's line. This is what makes the approver's review count under code-owner review, which the printed
+  `main-protection` ruleset requires. The gate check `codeowners` compares the file with `config/project.yaml`.
+- `SECURITY.md`: generic text (private vulnerability reporting through the Security tab, no credentials in a report, what to expect,
+  scope). It has no address and no name.
+- The `approver_login` pattern of the configuration schema is stricter than before: it must end in a letter or digit and has at most 39
+  characters, the form that the `codeowners` check and the public-repo hygiene check accept for the one line. A login outside it fails
+  before anything is written (exit 2). `owner` and `machine_login` keep the looser pattern.
+- Init PR (TC-2): the CODEOWNERS rewrite is a write of a seeded file, so it needs no exception.
+- Sync (`template-sync.md`, point 5): the three paths reach a project generated before this release as new seeded paths. The sync
+  writes `.github/CODEOWNERS` from the project's own `approver_login`, never from the tag's file.
+- Tests: `test_manifest.py` (written from the configuration, dry run listing, invalid logins), `test_dry_run.py` (the generated-tree
+  check), `template-dev/tests/sync/test_sync_seeded_files.py`, and the fixtures of the two checks in `tests/quality-gate/`.
 
 ## Points for the approver
 
@@ -86,3 +110,8 @@ These are choices the design left to the implementation or where it is ambiguous
    covered by the same exemption.
 4. `visibility` is used while generating and is not written to `config/project.yaml`: the
    design says workflows read `github.event.repository.private`, not the configuration.
+5. **Design wording (the seeding PR).** Design section 3 lists `dependabot.yml` among the seeded files and decision D9-3 says that
+   `dependabot.yml` is the only community or security file that ADR-008 ships in v1; section 8 does not name the checks
+   `dependabot-config` and `codeowners`. The manifest already classed `CODEOWNERS` and `SECURITY.md` as seeded, so the seeding PR ships
+   all three and both checks. `CODEOWNERS` is what makes the approver's review count under code-owner review. The approver decides
+   whether the design text changes; it was not edited.

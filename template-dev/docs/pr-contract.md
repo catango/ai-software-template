@@ -63,13 +63,14 @@ every key sits in each fixture case and is never read.
 as `GH_TOKEN` for `gh`, then runs the policy checks of the base commit against the head files with `GATE_BASE_REF` set. A checker
 missing on the base commit is a failure; there is no bootstrap skip. Six checks run: `workflow-policy`,
 `no-claude-in-workflows`, `forbidden-api`, and, since the follow-ups below, `operator-contract`, `cr-layout` and `owned-drift`.
-`dependabot-config` joins the list with the row that creates it.
+`dependabot-config` (created by the seeding PR) joins the list in a separate PR after that one is merged: a checker missing on the
+base commit fails the job.
 
 ## Left to later rows
 
-- The policy check `dependabot-config` (no row names it; the CR-43 plan puts it in the template's PR 2, and row 2 did not seed it):
-  it joins the list in `pr-contract.yml`. (`owned-drift` joined it in the follow-up below.)
-- The private-repository checklist of the PR templates (CR-43 S-16) and the `codeowners` check (CR-43 plan, template PR 4).
+- The policy check `dependabot-config`: the seeding PR created it, and it joins the list in `pr-contract.yml` in a separate PR after
+  that one is merged. (`owned-drift` joined it in the follow-up below.)
+- The private-repository checklist of the PR templates (CR-43 S-16). The `codeowners` check exists since the seeding PR.
 - The dry-run step that runs these cases against a generated tree (row 9): `PR_CONTRACT_TREE=<tree> template-dev/run-tests.sh skills`
   already does it for `test_cases.py`, and a run against a generated tree passed while this row was written.
 - A real run on GitHub: nothing here proves the `gh api` calls against the live API, the read-only token reading a design

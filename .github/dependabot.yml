@@ -1,0 +1,15 @@
+# Version updates only. Every update arrives as a PR on a `dependabot/` branch, which pr-contract treats under rule PC-7:
+# it may change only dependency manifests, lock files, and workflow `uses:` pins. The approver reviews and merges every one
+# of them; nothing is merged automatically.
+#
+# Seeded: written once by scripts/initialize-project, then owned by the project. Add an entry for each package ecosystem the
+# project uses (for example `pip` with the directory of its requirements file). Keep the github-actions entry, and never set
+# `open-pull-requests-limit: 0`: the gate check `dependabot-config` rejects both.
+version: 2
+updates:
+  # SHA-pinned Actions: Dependabot rewrites the commit SHA and the trailing version comment together.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5

@@ -45,8 +45,8 @@ description = "Account or organisation that owns the repository."
 key = "github.approver_login"
 type = "string"
 required = true
-pattern = '^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$'
-description = "Login of the approver. Only this account's review comments count as instructions."
+pattern = '^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$'
+description = "Login of the approver (it ends in a letter or digit). Only this account's review comments count as instructions. It is written as the one line of .github/CODEOWNERS."
 
 [[field]]
 key = "github.approver_id"

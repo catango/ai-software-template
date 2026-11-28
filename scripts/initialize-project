@@ -9,8 +9,8 @@ Nothing is inherited from the template's own files. The script
   1. refuses a tree that already has .template/state.toml, or a file without a class;
   2. validates the configuration and the preset files it names;
   3. removes every `template-only` path;
-  4. writes the seeded files: README.md, config/project.yaml, docs/PLATFORM.md,
-     .claude/deny.platform.txt, and .template/state.toml; the entries of the platform deny list
+  4. writes the seeded files: README.md, config/project.yaml, .github/CODEOWNERS (the one line
+     `* @<approver_login>`), docs/PLATFORM.md, .claude/deny.platform.txt, and .template/state.toml; the entries of the platform deny list
      are also added once to permissions.deny in .claude/settings.json. The seeded docs/README.md
      (the locator for the records) and docs/PROJECT.md are carried by the template and kept as
      they are: the template's file is their only source;
@@ -271,6 +271,7 @@ def main(argv=None):
     seeded = {
         "README.md": readme(config["project"]).encode(),
         "config/project.yaml": template_config.project_yaml(config).encode(),
+        ".github/CODEOWNERS": f"* @{config['github']['approver_login']}\n".encode(),
         "docs/PLATFORM.md": platform_doc,
         ".claude/deny.platform.txt": deny_platform,
     }

@@ -27,9 +27,16 @@ the exact follow-up for `pr-contract.yml`, what is not proven here, and the step
    fix is a "sync twice" MAJOR release, or the project moves its file first.
 4. **The manifest version of a tag must equal the tag** (`.template/manifest.toml` says "set when a release tag is created"). The sync
    refuses a tag whose manifest names another version. The release checklist has to set it before the approver tags.
-5. **What "new seeded path" means.** A seeded path of the tag is added once when it is absent from the tree **and** the project's own
-   manifest has no seeded pattern for it. A file inside a seeded directory that the project already has (`scripts/checks.d/`) is never
-   added; a path the project deleted is never added back.
+5. **What "new seeded path" means.** A seeded path of the tag is added once when it is absent from the tree **and** either the project's
+   own manifest has no seeded pattern for it, or lists it by its exact name while the template commit recorded in `state.toml` did not
+   have the file (a manifest can name a file before a release ships it: that is how `.github/dependabot.yml`, `.github/CODEOWNERS` and
+   `SECURITY.md` reached projects generated before they were seeded). A file inside a seeded directory that the project already has
+   (`scripts/checks.d/`) is never added; a path the project deleted is never added back, because the recorded commit had it. When no
+   commit is recorded, or it is not within the clone (the same 500-commit bound), the sync keeps the old rule and adds nothing for a
+   path that the project's manifest already names. `.github/CODEOWNERS` is written as `* @<approver_login>` from the project's
+   `config/project.yaml`, never from the tag's file (which names the template's approver); when the configuration has no valid
+   approver login the file is not added and the plan says so. The sync script that runs is the project's own, so a project reaches this
+   behaviour with the sync that follows the one that brought the new script ("sync twice").
 6. **`--check` counts every tag `v<MAJOR>.<MINOR>.<PATCH>`**, not only those in the default branch (that needs a clone). The sync itself
    refuses a tag outside the default branch.
 7. **The tag must be within the newest 500 commits of the default branch** of the template (the clone is bounded to that depth). An older

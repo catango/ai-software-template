@@ -2,8 +2,9 @@
 
     dry_run_checks.py export TEMPLATE DEST   copy the files of the template (tracked, and untracked but not ignored) into the
                                              empty directory DEST, without history: what "Use this template" copies (step 1)
-    dry_run_checks.py tree TREE              a generated tree has no template-only path, every file has one class, and no change
-                                             request or ADR instance of the template (step 2)
+    dry_run_checks.py tree TREE              a generated tree has no template-only path, every file has one class, no change
+                                             request or ADR instance of the template, the three seeded community and security
+                                             files, and a CODEOWNERS for the configured approver (step 2)
     dry_run_checks.py leak TEMPLATE TREE     the payload of TEMPLATE (every file not classed template-only) and the generated TREE
                                              hold no identifier pattern, platform reference, fixed architecture, or unfilled
                                              placeholder (step 8, T-21)
@@ -62,6 +63,26 @@ def export(template, dest):
     return 0
 
 
+SEEDED_FILES = (".github/dependabot.yml", ".github/CODEOWNERS", "SECURITY.md")
+APPROVER = re.compile(r'^  approver_login: "([A-Za-z0-9][A-Za-z0-9-]*)"$', re.MULTILINE)
+
+
+def seeded_findings(root):
+    """The seeded community and security files exist in a generated tree, and CODEOWNERS is the one line for the configured approver
+    (not the template's own line). Findings never print an account name."""
+    findings = [f"{rel}: a seeded file is missing" for rel in SEEDED_FILES if not (root / rel).is_file()]
+    try:
+        approver = APPROVER.search((root / "config" / "project.yaml").read_text(encoding="utf-8"))
+        codeowners = (root / ".github" / "CODEOWNERS").read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return findings
+    if approver is None:
+        findings.append("config/project.yaml: no approver_login")
+    elif codeowners != f"* @{approver.group(1)}\n":
+        findings.append(".github/CODEOWNERS: not the one line for the approver of config/project.yaml")
+    return findings
+
+
 def tree(root):
     root = Path(root)
     try:
@@ -78,6 +99,7 @@ def tree(root):
             findings.append(f"{rel}: a template-only path is still there")
         if INSTANCE.search(rel):
             findings.append(f"{rel}: a change request or ADR instance from the template")
+    findings += seeded_findings(root)
     report = tm.check_paths(manifest, paths)
     findings += [f"{rel}: no class in the manifest" for rel in report["unclassed"]]
     findings += [f"{rel}: more than one class ({', '.join(classes)})" for rel, classes in report["multiple"]]
