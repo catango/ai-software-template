@@ -119,8 +119,9 @@ The entries are read from the head: a project declares a divergence in the PR th
 
 ### Follow-up PR: `owned-drift` on the base-run list of `pr-contract.yml`
 
-Not done here, on purpose: a checker that is missing on the base commit fails `pr-contract`, so the PR that adds `owned-drift` cannot also
-add it to the list. After this PR is merged, one small PR:
+**Done** in the follow-up PR `impl/CR-39-owned-drift-base-run`; the account of the change is in `template-dev/docs/pr-contract.md`
+("`owned-drift` joins the list"). It was not done in this PR, on purpose: a checker that is missing on the base commit fails
+`pr-contract`, so the PR that adds `owned-drift` could not also add it to the list. The spec of that PR was:
 
 1. In `.github/workflows/pr-contract.yml`, step "Run the policy checks of the base against the head", add `owned-drift` to the id list:
    `for id in workflow-policy "no-cl""aude-in-workflows" forbidden-api operator-contract cr-layout owned-drift; do`. Update the comment above

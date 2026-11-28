@@ -160,13 +160,14 @@ decision 9 are in `CLAUDE.md`.
    request must not widen it. `claude-md` and `deny-list` do not: they have no policy input to read from the base, and the base's
    copy of the check would still compare the head's `CLAUDE.md` with the head's `state.toml`, and the head's `required-deny.txt`
    with the head's `settings.json`. What guards those files against a pull request that edits both sides is `owned-drift`
-   (row 8), which reads the hashes from the base and needs an override entry. Until row 8 lands that gap is open in a generated
-   repository; the code-owner review of the approver is the control.
+   (row 8), which reads the hashes from the base and needs an override entry. Until row 8 landed that gap was open in a generated
+   repository; the code-owner review of the approver was the control. `owned-drift` is on the list since its follow-up
+   (`template-dev/docs/pr-contract.md`).
 7. **`operator-contract` was not on the list in this PR, on purpose (done in the follow-up, `template-dev/docs/pr-contract.md`, which also adds `cr-layout`).** A checker that is missing on the base commit
    fails `pr-contract` (ADR-009 decision 14 removed the bootstrap skip), so the pull request that adds the checker cannot also add it
    to the list without failing its own `pr-contract`. The follow-up, after this one is merged: in `.github/workflows/pr-contract.yml`
    add `operator-contract` to the id list of the step "Run the policy checks of the base against the head" and update the comment
-   above it (the checks that a later row adds are `owned-drift` and `dependabot-config`; `claude-md` and `deny-list` are not on it, with
+   above it (the checks that a later row adds were `owned-drift`, now on the list, and `dependabot-config`; `claude-md` and `deny-list` are not on it, with
    the reason of point 6). In `template-dev/tests/pr_contract/test_policy_commands.py`: copy `scripts/pr_contract` into the base layout
    of `setUp` (the check reads its policy with that package), give the base configuration `operator_paths` and `operator_commands`
    (the check fails closed on a configuration without `operator_paths`), add `operator-contract` to the list asserted by
