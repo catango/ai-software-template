@@ -1254,8 +1254,57 @@ test_new_cr() {
   rc_is "new-cr: a skeleton with ${ADP}<n> and a qualified reference is accepted" 0
   kept=$(grep -F 'Recorded in' "$repo/docs/cr/${CRP}50/impact-analysis.md" || true)
   if [[ $kept == "Recorded in ${ADP}<n>, see other-owner/other-repo#<n> and other-repo:${ADP}<n>; this is ${CRP}50, issue #50." ]]; then ok "new-cr: ${ADP}<n> and <owner>/<repo>#<n> keep the <n>; ${CRP}<n> and #<n> are filled in"; else fail "new-cr: ${ADP}<n> and <owner>/<repo>#<n> keep the <n>; ${CRP}<n> and #<n> are filled in" "$kept"; fi
-  # Every <n> of the real skeleton is one of the replaced forms: none is left after the replacement.
-  if ! grep -rqE '<n>|<slug>' "$repo/docs/cr/${CRP}50/README.md" "$repo/docs/cr/${CRP}50/design.md" "$repo/docs/cr/${CRP}50/acceptance-criteria.md" "$repo/docs/cr/${CRP}50/implementation-plan.md"; then ok "new-cr: no <n> is left in the files of the real skeleton"; else fail "new-cr: no <n> is left in the files of the real skeleton"; fi
+  cp "$ROOT/docs/cr/_template/impact-analysis.md" "$skel/impact-analysis.md"
+  # Every <n> of the real skeleton is one of the replaced forms: a separate run on the unmodified skeleton leaves none in any of the
+  # five files (impact-analysis.md included).
+  newcr 51 real-skeleton
+  rc_is "new-cr: the unmodified skeleton is accepted" 0
+  if ! grep -rqE '<n>|<slug>' "$repo/docs/cr/${CRP}51"; then ok "new-cr: no <n> or <slug> is left in any of the five files of the real skeleton"; else fail "new-cr: no <n> or <slug> is left in any of the five files of the real skeleton"; fi
+
+  # A placeholder that the script does not fill in is refused, never written: the Markdown forms around ${CRP}<n> and #<n> are filled in,
+  # a form that names another repository's record (or is not a word of its own) is refused with file and line, nothing is written.
+  local form want counter=60 last_line before_forms
+  tree() { (cd "$repo" && find . -path ./.git -prune -o -print | LC_ALL=C sort | sha256sum); }
+  line_with() { # line_with TEXT: the skeleton's impact-analysis.md gets one more line
+    cp "$ROOT/docs/cr/_template/impact-analysis.md" "$skel/impact-analysis.md"
+    printf '\n%s\n' "$1" >>"$skel/impact-analysis.md"
+  }
+  last_line=$(($(wc -l <"$ROOT/docs/cr/_template/impact-analysis.md") + 2))
+  while IFS='|' read -r form want; do
+    counter=$((counter + 1))
+    line_with "Form: $form"
+    newcr "$counter" forms
+    rc_is "new-cr: the form '$form' is filled in" 0
+    kept=$(grep -F 'Form:' "$repo/docs/cr/${CRP}$counter/impact-analysis.md" || true)
+    if [[ $kept == "Form: ${want//N/$counter}" ]]; then ok "new-cr: '$form' becomes '${want//N/$counter}'"; else fail "new-cr: '$form' becomes '${want//N/$counter}'" "$kept"; fi
+  done <<FORMS
+**${CRP}<n>**|**${CRP}N**
+"${CRP}<n>"|"${CRP}N"
+'${CRP}<n>'|'${CRP}N'
+_${CRP}<n>_|_${CRP}N_
+~~${CRP}<n>~~|~~${CRP}N~~
+docs/cr/${CRP}<n>/design.md|docs/cr/${CRP}N/design.md
+(${CRP}<n>, #<n>)|(${CRP}N, #N)
+**#<n>**|**#N**
+_#<n>_|_#N_
+"#<n>"|"#N"
+a,#<n>|a,#N
+FORMS
+  before_forms=$(tree)
+  for form in "other-repo/${CRP}<n>" "other-repo:${CRP}<n>" "see x/y/${CRP}<n>/design.md" "(${CRP}<n><slug>)" "#<n>x" "${CRP}<n>x"; do
+    line_with "Form: $form"
+    newcr 90 refused
+    rc_is "new-cr: the form '$form' is refused" 1
+    out_has "new-cr: the refusal of '$form' names the file and the line" "docs/cr/_template/impact-analysis.md:$last_line"
+    if [[ $before_forms == "$(tree)" ]]; then ok "new-cr: nothing is written, and no temporary directory is left, for '$form'"; else fail "new-cr: nothing is written, and no temporary directory is left, for '$form'"; fi
+  done
+  line_with "Form: other-repo/${CRP}<n>"
+  newcr --dry-run 91 refused
+  rc_is "new-cr --dry-run refuses a placeholder that is left" 1
+  # the kept forms stay accepted, also with a placeholder owner and repository name
+  line_with "Form: ${ADP}<n>, other-repo:${ADP}<n>, <owner>/<repo>#<n>, other-owner/other-repo#<n>, <repo>:${ADP}<n>"
+  newcr 92 kept-forms
+  rc_is "new-cr: ${ADP}<n>, <repo>:${ADP}<n>, and <owner>/<repo>#<n> are still accepted" 0
   cp "$ROOT/docs/cr/_template/impact-analysis.md" "$skel/impact-analysis.md"
 
   # a write error part way leaves nothing behind (never what existed before), and the next run succeeds
@@ -1279,7 +1328,6 @@ sys.exit(module.main([number, slug]))
 PY
     ) || RC=$?
   }
-  tree() { (cd "$repo" && find . -path ./.git -prune -o -print | LC_ALL=C sort | sha256sum); }
   before=$(tree)
   newcr_failing 40 third-fails 3
   rc_is "new-cr: a write error on the third file is refused" 1

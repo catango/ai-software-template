@@ -5,7 +5,8 @@
 
 `<n>` is the issue number of THIS repository (a positive integer, no leading zero); `<slug>` names the branches
 (`design/CR-<n>-<slug>`, `impl/CR-<n>-<slug>`): lowercase letters, digits, and single hyphens, at most 40 characters.
-The files are copied from `docs/cr/_template/` into `<root>cr/CR-<n>/`, with the issue number (in `CR-<n>` and `#<n>` only) and `<slug>` filled in. The root is the
+The files are copied from `docs/cr/_template/` into `<root>cr/CR-<n>/`, with the issue number (in `CR-<n>` and `#<n>` only) and `<slug>` filled in;
+a `CR-<n>` or `#<n>` that is left after that (in a form the script does not fill in) is refused with the file and line. The root is the
 first entry of `workflow.docs_roots` in `config/project.yaml`; `--root` picks another entry of that list (the template repository
 keeps its own records under `template-dev/docs/`). Nothing is overwritten: if the directory exists, or any of its files does,
 the script stops before it writes anything. The files are written into a temporary directory next to the target and renamed into
@@ -34,10 +35,18 @@ NUMBER = re.compile(r"[1-9][0-9]{0,8}")
 SLUG = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 MAX_SLUG = 40
 MAX_BYTES = 65536
-# The only places where `<n>` is the issue number: `CR-<n>` (also in the branch names `design/CR-<n>-<slug>`) and `#<n>`. An `<n>`
-# that belongs to another record (`ADR-<n>`, `<repo>:ADR-<n>`, `<owner>/<repo>#<n>`) is kept as it is: both forms must stand alone
-# (start of the text, a space, a pipe, a bracket, a parenthesis, a backtick, or the branch prefix before them).
-ISSUE_NUMBER = re.compile(r"(?:(?<![^\s|(\[`])|(?<=design/)|(?<=impl/))CR-<n>(?![\w<])|(?<![^\s|(\[`])#<n>(?!\w)")
+# The only places where `<n>` is the issue number: `CR-<n>` (also in the branch names `design/CR-<n>-<slug>` and in a path
+# `.../cr/CR-<n>/`) and `#<n>`. An `<n>` that belongs to another record (`ADR-<n>`, `<repo>:ADR-<n>`, `<owner>/<repo>#<n>`) is kept as it
+# is: both forms must stand alone (start of the text, whitespace, a pipe, a bracket, a parenthesis, a quote, a backtick, a Markdown
+# emphasis mark, `~`, or a comma before them; or the branch and path prefix before `CR-<n>`). A `/` or `:` is deliberately not a
+# leading character: `<repo>/CR-<n>` and `<repo>:CR-<n>` name a record of another repository.
+LEAD = r"\s|(\[`*_\"'~,"
+ISSUE_NUMBER = re.compile(
+    rf"(?:(?<![^{LEAD}])|(?<=design/)|(?<=impl/)|(?<=/cr/))CR-<n>(?![^\W_]|<)|(?<![^{LEAD}])#<n>(?![^\W_])")
+# What is left after the replacement must not look like an issue number that was missed: any `CR-<n>`, and a `#<n>` that is not the
+# tail of `<owner>/<repo>#<n>` (a name character or `>` before it). Such a text is refused, never written with a placeholder in it.
+LEFTOVER = re.compile(r"CR-<n>|(?<![\w.>-])#<n>")
+MAX_LEFTOVER_REPORTED = 5
 
 
 def refuse(message, code=1):
@@ -54,6 +63,16 @@ def fill(body, number, slug):
     """The skeleton text with the issue number and the slug filled in, and every other `<n>` left alone."""
     body = ISSUE_NUMBER.sub(lambda match: match.group(0).replace("<n>", number), body)
     return body.replace("<slug>", slug)
+
+
+def unfilled(rendered):
+    """["file:line"] of the rendered text where an issue-number placeholder is still left (the files are named as in the skeleton)."""
+    found = []
+    for name, body in rendered.items():
+        for number, line in enumerate(body.split("\n"), 1):
+            if LEFTOVER.search(line):
+                found.append(f"docs/cr/_template/{name}:{number}")
+    return found
 
 
 def write_all(root, relative, target, rendered):
@@ -155,6 +174,11 @@ def main(argv=None):
         return refuse("the record root leaves the repository; nothing was written")
 
     rendered = {name: fill(body, args.number, args.slug) for name, body in bodies.items()}
+    left = unfilled(rendered)
+    if left:
+        more = f" (and {len(left) - MAX_LEFTOVER_REPORTED} more)" if len(left) > MAX_LEFTOVER_REPORTED else ""
+        return refuse(f"the issue number is still a placeholder at {', '.join(left[:MAX_LEFTOVER_REPORTED])}{more}: write CR-<n> and #<n> "
+                      "as separate words, or after a quote, emphasis mark, bracket, or `/cr/`; nothing was written")
     if args.dry_run:
         print("Dry run: nothing is written.")
     else:
