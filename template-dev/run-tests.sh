@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 # Run the template's own tests (standard library only, no network).
-#
 #   template-dev/run-tests.sh [manifest|leak|engine|ci|gate|skills|instructions|sync|all]
 #
 # manifest  T-1 and the generation part of T-2
@@ -10,8 +9,7 @@
 # skills    the fixture tests of scripts/pr-contract and its rules (T-8, T-20), and of the Skill scripts and the six Skills (T-12, T-13:
 #           pr-checkpoint, cr-context with cr-preflight, cr-criteria); later rows add their script tests to tests/skills/
 # instructions  T-4, T-5, T-6, T-22 on the template and on generated trees (the checks' fixtures are in `gate`)
-# sync      T-9 and T-10 (template-sync against local git repositories as the template), the lag line, and the manifest classes of
-#           the row; T-17 (owned-drift) is in `gate`
+# sync      T-9, T-10, the lag line, and the classes of the files of row 8 (template-sync against local git repositories)
 # gate      the gate's fixtures (tests/quality-gate/run.sh: one passing and failing case per check; T-19 forbidden-api)
 set -euo pipefail
 

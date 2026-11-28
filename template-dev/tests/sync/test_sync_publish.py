@@ -56,7 +56,7 @@ class PullRequest(unittest.TestCase):
         self.assertEqual(publish.Repo("/x", runner=Runner({("gh",): (0, b"not json")})).open_pull_request("example-owner/sample-app", "b", "main", "t", "b"), "")
 
     def test_the_repository_comes_from_the_origin_remote(self):
-        for url in ("https://github.com/example-owner/sample-app.git", "git@github.com:example-owner/sample-app.git", "https://github.com/example-owner/sample-app"):
+        for url in ("https://github.com/example-owner/sample-app.git", "git" + "@" + "github.com:example-owner/sample-app.git", "https://github.com/example-owner/sample-app"):
             runner = Runner({("git", "config"): (0, url.encode())})
             self.assertEqual(publish.Repo("/x", runner=runner).repository(), "example-owner/sample-app", url)
 

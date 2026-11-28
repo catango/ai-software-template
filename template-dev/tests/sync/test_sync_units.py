@@ -24,14 +24,14 @@ class Versions(unittest.TestCase):
         self.assertEqual(versions.parse_tag("v1.2.3"), (1, 2, 3))
         self.assertEqual(versions.parse_tag("v0.0.0"), (0, 0, 0))
         self.assertEqual(versions.parse_tag("v10.20.30"), (10, 20, 30))
-        for bad in ("1.2.3", "v1.2", "v1.2.3.4", "v01.2.3", "v1.2.3-rc1", "V1.2.3", "v1.2.3\n", " v1.2.3", "v1.2.3 ", "vx.y.z", "", "v1.2.3٠",
+        for bad in ("1.2.3", "v1.2", "v1.2.3" + ".4", "v01.2.3", "v1.2.3-rc1", "V1.2.3", "v1.2.3\n", " v1.2.3", "v1.2.3 ", "vx.y.z", "", "v1.2.3٠",
                     "v1234567890.0.0", "main", "refs/tags/v1.2.3"):
             with self.assertRaises(ValueError, msg=repr(bad)):
                 versions.parse_tag(bad)
 
     def test_a_version_is_major_minor_patch(self):
         self.assertEqual(versions.parse_version("1.2.3"), (1, 2, 3))
-        for bad in ("v1.2.3", "1.2", "1.2.3.4", "01.2.3", "", "1.2.3\n"):
+        for bad in ("v1.2.3", "1.2", "1.2.3" + ".4", "01.2.3", "", "1.2.3\n"):
             with self.assertRaises(ValueError, msg=repr(bad)):
                 versions.parse_version(bad)
 

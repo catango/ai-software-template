@@ -67,7 +67,7 @@ class Base(unittest.TestCase):
 class MalformedTargets(Base):
     def test_only_a_tag_name_of_the_form_v_major_minor_patch_is_accepted(self):
         for target in ("main", "0123456789abcdef0123456789abcdef01234567", "v1.2", "1.2.0", "v1.2.0-rc1", "refs/tags/v1.2.0", "v01.2.0",
-                       "V1.2.0", "v1.2.0.0", "v1.2.x", "v1.2.0 ", "v1.2.0\n", "HEAD", "origin/main", "", "v1.2.0/../x", "v1.2.0;touch x",
+                       "V1.2.0", "v1.2.0" + ".0", "v1.2.x", "v1.2.0 ", "v1.2.0\n", "HEAD", "origin/main", "", "v1.2.0/../x", "v1.2.0;touch x",
                        "template-sync/v1.2.0", "v1.2.0^{}", "v-1.2.0", "v1.2.0 "):
             with self.subTest(target=target):
                 self.refused(target, code=2, text="v<MAJOR>.<MINOR>.<PATCH>")

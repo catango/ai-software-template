@@ -36,7 +36,7 @@ SOURCE = "example-org/starter-template"  # `template.source` of the second fixtu
 CONFIG = base.CONFIGS["second"]
 PLATFORM_ENTRIES = ["Bash(example-cli delete *)", "Bash(example-cli apply *)"]  # deny.platform.txt of the second configuration
 
-CORE_REMOVED_IN_B = "Bash(gh api *updateTopics*)"
+CORE_REMOVED_IN_B = "Bash(gh secret *)"
 CORE_ADDED_IN_B = "Bash(example-core-new *)"
 
 GIT_ENV = {
