@@ -56,9 +56,10 @@ class Classes(unittest.TestCase):
         head = (ROOT / "scripts/checks/owned-drift.sh").read_text().splitlines()[:12]
         self.assertIn("# class: template", head)
 
-    def test_the_pr_contract_workflow_is_not_changed_by_this_row(self):
+    def test_the_pr_contract_workflow_lists_owned_drift_since_the_follow_up(self):
+        # Row 8 left the list alone (a checker missing on the base commit fails pr-contract); the follow-up PR added it.
         text = (ROOT / ".github/workflows/pr-contract.yml").read_text()
-        self.assertNotIn("owned-drift", text.split("for id in", 1)[1].split("; do", 1)[0])
+        self.assertIn("owned-drift", text.split("for id in", 1)[1].split("; do", 1)[0].split())
 
 
 if __name__ == "__main__":
