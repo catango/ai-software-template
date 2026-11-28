@@ -201,12 +201,12 @@ def mode_sync(args, tree):
     if not changed_state:
         raise Refused(f"the tag is the version already recorded and only {len(plan.changes)} file(s) differ: a sync PR would leave "
                       f"{STATE} unchanged, which rule TC-1 rejects; restore the files by hand or sync to a newer tag")
+    pr_body = _body(tree, plan, state, tag, commit, entries)  # refuses a body that would not fit, before anything is written
     print("\n".join(lines))
     if args.dry_run:
         print(common.summary(PROG, f"dry run v{state.version} -> {tag}: {len(plan.changes)} file(s), {len(plan.honoured)} override(s), nothing written"))
         return 0
 
-    pr_body = _body(tree, plan, state, tag, commit, entries)
     online = not args.fixture
     if online:
         repo.check_remote_state(default, branch)

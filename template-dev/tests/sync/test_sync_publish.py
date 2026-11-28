@@ -28,7 +28,8 @@ class Push(unittest.TestCase):
     def test_it_pushes_the_one_branch_and_nothing_else(self):
         runner = Runner()
         publish.Repo("/x", runner=runner).push("template-sync/v1.1.0")
-        self.assertEqual(runner.calls[0]["argv"], ["git", "push", "-q", "origin", "refs/heads/template-sync/v1.1.0:refs/heads/template-sync/v1.1.0"])
+        self.assertEqual(runner.calls[0]["argv"], ["git", "-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "push", "-q", "origin",
+                                                   "refs/heads/template-sync/v1.1.0:refs/heads/template-sync/v1.1.0"])
         self.assertEqual(runner.calls[0]["env"]["GIT_TERMINAL_PROMPT"], "0")
         words = " ".join(runner.calls[0]["argv"])
         for forbidden in ("--force", "--tags", "--follow-tags", "--mirror", "--delete", "refs/tags", "main"):
@@ -36,7 +37,7 @@ class Push(unittest.TestCase):
 
     def test_a_failed_push_is_an_error(self):
         with self.assertRaises(SourceError):
-            publish.Repo("/x", runner=Runner({("git", "push"): (1, b"")})).push("template-sync/v1.1.0")
+            publish.Repo("/x", runner=Runner({("git", "-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "push"): (1, b"")})).push("template-sync/v1.1.0")
 
 
 class PullRequest(unittest.TestCase):
@@ -57,7 +58,7 @@ class PullRequest(unittest.TestCase):
 
     def test_the_repository_comes_from_the_origin_remote(self):
         for url in ("https://github.com/example-owner/sample-app.git", "git" + "@" + "github.com:example-owner/sample-app.git", "https://github.com/example-owner/sample-app"):
-            runner = Runner({("git", "config"): (0, url.encode())})
+            runner = Runner({("git", "-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "config"): (0, url.encode())})
             self.assertEqual(publish.Repo("/x", runner=runner).repository(), "example-owner/sample-app", url)
 
 

@@ -2,8 +2,10 @@
 section "Workflow change justification" when a workflow changes (PC-6), and the two items of the checkpoint that the run itself did."""
 import re
 
+from pr_contract import markdown
 from pr_contract.sanitize import clean
 
+from .errors import Refused
 from .plan import KINDS, WORKFLOW_PREFIXES, changed_paths, workflow_paths
 
 HEADINGS = {
@@ -19,10 +21,12 @@ TICKED = ("Sync run and state file updated", "Changed files listed by class")
 
 
 def _paths(paths, cap=SHOWN):
+    """One line per path, cut at `cap` with a count; `cap` None lists every path."""
     if not paths:
         return "none\n"
-    lines = "".join(f"- `{path}`\n" for path in paths[:cap])
-    return lines + (f"- and {len(paths) - cap} more\n" if len(paths) > cap else "")
+    shown = paths if cap is None else paths[:cap]
+    lines = "".join(f"- `{path}`\n" for path in shown)
+    return lines + (f"- and {len(paths) - len(shown)} more\n" if len(shown) < len(paths) else "")
 
 
 def fill(text, name, content):
@@ -40,7 +44,8 @@ def build(template_text, plan, source, old_version, old_commit, new_tag, new_com
     summary = (f"The template moves from v{old_version} to {new_tag} ({counts or 'no file changes'}; the version and the hashes in "
                f"`.template/state.toml` are updated). {len(plan.honoured)} override(s) honoured. Seeded files that exist are not changed.")
     versions = f"- From: v{old_version} (commit {old_commit or 'not recorded'})\n- To: {new_tag} (tag commit {new_commit})\n"
-    classes = "".join(f"{HEADINGS[kind]}:\n\n{_paths(by_kind[kind])}\n" for kind in KINDS)
+    # rule TC-1 wants every new seeded path listed here, so that list is never cut
+    classes = "".join(f"{HEADINGS[kind]}:\n\n{_paths(by_kind[kind], None if kind == 'seeded' else SHOWN)}\n" for kind in KINDS)
     classes += "Seeded files that exist in the project are never changed or removed by a sync.\n"
     if plan.notes:
         classes += "\nNotes:\n\n" + "".join(f"- {clean(note, 200)}\n" for note in plan.notes)
@@ -68,4 +73,7 @@ def build(template_text, plan, source, old_version, old_commit, new_tag, new_com
         if f"- [ ] {item}\n" not in body:
             raise ValueError(f"the template has no checkpoint item {item!r}")
         body = body.replace(f"- [ ] {item}\n", f"- [x] {item}\n", 1)
+    if len(body) > markdown.MAX_BODY or body.count("\n") > markdown.MAX_LINES:
+        raise Refused(f"the pull request body would be too large ({len(body)} bytes, the limit is {markdown.MAX_BODY}): {len(seeded)} new seeded "
+                      "paths must all be listed in it and are not cut; release them in smaller steps")
     return body

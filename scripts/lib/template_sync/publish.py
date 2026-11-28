@@ -41,7 +41,10 @@ class Repo:
         return env
 
     def git(self, *args, ok=(0,), data=None):
-        status, out = self._runner(["git", *args], str(self.tree), self._env(), data)
+        """Every git call of the script runs with hooks and the file-system monitor off. A sync overwrites owned files, and a project can
+        point `core.hooksPath` at one of them (a `.githooks/pre-push` that a release ships): nothing the template wrote may run during the
+        sync. The project's own hooks do not run either; they run again on every later command of the people who use the repository."""
+        status, out = self._runner(["git", "-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", *args], str(self.tree), self._env(), data)
         if status not in ok:
             raise SourceError(f"git {args[0]} failed")
         return status, out.decode("utf-8", "replace")
@@ -96,7 +99,7 @@ class Repo:
 
     def commit(self, paths, message):
         self.git("add", "-A", "--", *paths)
-        self.git("-c", "core.hooksPath=/dev/null", "commit", "-q", "-m", message)
+        self.git("commit", "-q", "-m", message)
         return self.text("rev-parse", "HEAD")
 
     def rollback(self, default, branch, added):

@@ -81,8 +81,14 @@ Exit codes: 0 done, 1 refused, 2 usage, 3 the source could not be read or a step
 - **Publishing.** Branch, one commit (hooks of the project are not run), a push of that branch only, and a draft PR whose body is
   `scripts/pr-body template-sync` with every section filled in: versions and tag commit, changed files by class, overrides honoured,
   drift limited to `uses:` lines, the release-notes link, and the section "Workflow change justification" when a workflow changes. The two
-  checkpoint items that the run did are ticked, because a checkpoint left as the template ships it fails PC-1. On a failed write the
-  tree goes back to a clean default branch. It never merges, tags, or pushes the default branch (`forbidden-api` passes on the library).
+  checkpoint items that the run did are ticked, because a checkpoint left as the template ships it fails PC-1. The list of new seeded paths is never cut (TC-1
+  needs each one in the body); the other lists stop at 200 with a count; a body over the limit of `pr-contract` (64 KiB) is refused, before
+  anything is written, with a message that says so. On a failed write the tree goes back to a clean default branch.
+- **Hooks.** Every git call of the script runs with `core.hooksPath=/dev/null` and `core.fsmonitor=false` (one place, `Repo.git`). A sync
+  overwrites owned files, and a project can point `core.hooksPath` at one (a release that ships `.githooks/pre-push`): nothing the template
+  wrote may run during the sync. **What the project's own hooks lose:** they do not run for the script's branch, commit, push and rollback;
+  they run again for every later command of the people who use the repository. The cost is small (the commit is the script's own, and the
+  gate runs in CI), the alternative is that a hook from the tag runs with the machine account's credentials. It never merges, tags, or pushes the default branch (`forbidden-api` passes on the library).
 - **`--fixture DIR`**: the source is `DIR/<owner>/<name>`, nothing is pushed, and the pull request is written to `DIR/created-pr.json`.
 
 ## `owned-drift`
@@ -97,7 +103,9 @@ Exit codes: 0 done, 1 refused, 2 usage, 3 the source could not be read or a step
 | The same, with an entry | passes |
 | The PR does not touch the file, although it differs from the hash | passes (it is the business of the PR that made it); without a base (a push) the tree is judged as a whole and fails |
 | A recorded override has no entry, or an entry was dropped while the file still differs | finding |
-| A PR on `template-sync/v<x>` that changes `state.toml` to version `<x>`, whose files match the hashes it records, and leaves `overrides.toml` alone | exempt |
+| A PR on `template-sync/v<x>` that changes `state.toml` to version `<x>`, **greater than the base's**, whose files match the hashes it records, leaves `overrides.toml` alone, and whose head `state.toml` drops no path of the base `[owned]` that is still in the tree (unless it is recorded as an override, or the head manifest classes it seeded) | exempt |
+| The same, but a path of the base `[owned]` is gone from the head `[owned]` while its file is still there | finding `dropped from [owned] ... but still present` (otherwise a changed file could leave the check by deleting its line) |
+| The same, at the version of the base or a lower one | finding; the script never produces such a PR |
 | A PR on `init/v<x>` that adds `state.toml` (the base has none) with matching hashes | exempt |
 | `state.toml` added or removed otherwise | finding |
 | A change limited to `uses:` lines of the same actions | passes (the reading above) |
@@ -105,6 +113,8 @@ Exit codes: 0 done, 1 refused, 2 usage, 3 the source could not be read or a step
 The hashes come from the base commit, so rewriting `state.toml` in the same PR does not help. The branch name comes from
 `GATE_HEAD_REF`, else `GITHUB_HEAD_REF` (set by Actions on a pull request). The exemption trusts a branch name, as the ADR says, together
 with `pr-contract`, which judges what such a PR may touch (TC-1, TC-2); `owned-drift` itself checks that the state and the files agree.
+**No check can verify that the content of a synced file equals the tag**: that stays with the approver's review of the sync PR (the
+body lists every file by class, and the diff of the owned files is the review).
 The entries are read from the head: a project declares a divergence in the PR that makes it, and the entry is reviewed there.
 
 ### Follow-up PR: `owned-drift` on the base-run list of `pr-contract.yml`
@@ -134,6 +144,9 @@ add it to the list. After this PR is merged, one small PR:
 - **T-10**: `test_sync_refusals.py` (a non-tag, a branch of a tag's name, a tag outside the default branch, a downgrade, a moved tag, a
   malformed tag and 20 other malformed targets, a state file that is missing or corrupt in 14 ways, a dirty tree, a source that is not
   the recorded one, malformed overrides, a symbolic link and a submodule in the tag; the clone's git calls; nothing of the clone runs).
+- **Review of the first version** (the coordinating session): `exempt_sync` dropped-path and version rules (gate cases and the end-to-end check
+  over a real sync in `test_sync_apply.py`), hooks that must not run (`test_sync_hooks.py`), the seeded list through TC-1 with 201 paths
+  and the refusal of a body over the limit (`test_sync_body.py`).
 - **T-17**: `tests/quality-gate/run.sh owned-drift` (24 fixture directories, one passing and one failing case per rule, and the cases
   that need a base commit and a branch name).
 - **The lag hook**: `test_sync_refusals.py::TemplateLag` (the first line of `--check`, and `cr-context` showing it).
