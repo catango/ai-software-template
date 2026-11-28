@@ -192,7 +192,7 @@ class _Reader:
         no commit recorded, or one beyond the bounded depth. Read as objects, like the files of the tag."""
         if not isinstance(commit, str) or not _SHA.fullmatch(commit):
             return None
-        status, _ = self.source.git("cat-file", "-e", f"{commit}^{{commit}}", cwd=self.repo, ok=(0, 1, 128))
+        status, _ = self.source.git("cat-file", "-e", commit + "^{commit}", cwd=self.repo, ok=(0, 1, 128))
         if status != 0:
             return None
         _, listing = self.source.git("ls-tree", "-r", "-z", "--name-only", "--full-tree", commit, cwd=self.repo)

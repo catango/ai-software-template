@@ -472,6 +472,22 @@ class Helper(unittest.TestCase):
         done = self.run_helper("tree", str(self.generated()))
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
 
+    def test_tree_fails_on_a_missing_seeded_file_and_on_a_codeowners_for_another_account(self):
+        for name, change, expected in (
+            ("dependabot", lambda tree: (tree / ".github" / "dependabot.yml").unlink(), ".github/dependabot.yml: a seeded file is missing"),
+            ("security", lambda tree: (tree / "SECURITY.md").unlink(), "SECURITY.md: a seeded file is missing"),
+            ("codeowners missing", lambda tree: (tree / ".github" / "CODEOWNERS").unlink(), ".github/CODEOWNERS: a seeded file is missing"),
+            ("other account", lambda tree: (tree / ".github" / "CODEOWNERS").write_text("* @example-other\n"), "not the one line for the approver"),
+            ("second owner", lambda tree: (tree / ".github" / "CODEOWNERS").write_text("* @example-approver @example-other\n"), "not the one line"),
+        ):
+            with self.subTest(name):
+                tree = self.generated()
+                change(tree)
+                done = self.run_helper("tree", str(tree))
+                self.assertEqual(done.returncode, 1, done.stdout)
+                self.assertIn(expected, done.stdout)
+                self.assertNotIn("example-other", done.stdout)
+
     def test_tree_fails_on_a_template_only_path(self):
         for rel in ("template-dev/notes.md", ".github/workflows/template-ci.yml"):
             with self.subTest(path=rel):

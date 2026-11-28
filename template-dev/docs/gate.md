@@ -9,7 +9,8 @@ disagree. It changes no decision. The seed commit is in `template-dev/provenance
 | Area | Files | Class |
 |---|---|---|
 | Entry point and shared helpers | `scripts/quality-gate.sh`, `scripts/lib/gate-lib.sh` | owned |
-| Generic checks (seeded) | `bash-hygiene`, `shellcheck`, `yaml`, `markdown`, `links`, `actionlint`, `python`, `gate-tests`, `public-repo-hygiene`, `workflow-policy` (with `.awk` and `.py`), `no-claude-in-workflows`, `toolchain` under `scripts/checks/` | owned |
+| Generic checks (seeded) | `bash-hygiene`, `shellcheck`, `yaml`, `markdown`, `links`, `actionlint`, `python`, `gate-tests`, `public-repo-hygiene`, `workflow-policy` (with `.awk` and `.py`), `no-claude-in-workflows`, `toolchain`, and (the seeding PR) `dependabot-config` under `scripts/checks/` | owned |
+| Template check (seeded, the seeding PR) | `codeowners` under `scripts/checks/`, with the fixtures of both checks under `tests/quality-gate/fixtures/` | owned |
 | Template checks (new) | `forbidden-api` (`.sh`, `.py`, `.toml`), `size-budget` (`.sh`, `.py`) under `scripts/checks/`; `.template/budgets.toml` | owned |
 | Install engine and CI manifest | `toolchain/install`, `toolchain/toolchain_engine/`, `toolchain/ci-manifest.toml`, `toolchain/python/ci.in`, `ci.lock` | owned |
 | CI | `.github/workflows/ci.yml`, `scripts/lib/ci_matrix.py` | owned |
@@ -21,9 +22,9 @@ disagree. It changes no decision. The seed commit is in `template-dev/provenance
 The manifest gained one pattern, `tests/quality-gate/` (owned): the gate's fixtures travel with the checks so that every
 repository runs the same fixtures (ADR-009 decision 11). Nothing else needed a class.
 
-Not seeded, on purpose: `dependabot-config` and `codeowners` (they need the seeded `dependabot.yml` and `CODEOWNERS`, which no
-row has written yet), `ansible` and `operator-contract` of the platform (the generic `operator-contract` is a later row). The
-catalogue lists them as `planned`.
+Not seeded, on purpose: `ansible` and `operator-contract` of the platform (the generic `operator-contract` is a later row).
+`dependabot-config` and `codeowners` were left out here because the files they judge did not exist yet; the seeding PR added the
+files and both checks (see `manifest-and-config.md`, "Seeded community and security files"), and the catalogue lists them as `present`.
 
 ## How the seeded code was changed
 
@@ -55,6 +56,20 @@ catalogue lists them as `planned`.
   failure for a whole-file override of `budgets.toml`. Not built: the always-loaded group, `output-budget`, `skill-layout`
   (later rows; they need the files of rows 4 to 6).
 - Fixtures: runner labels and architectures are neutral names; identifier-shaped values are built at run time.
+
+## `dependabot-config` and `codeowners`
+
+- `dependabot-config` (generic, needs `yq`, which the CI manifest has for both architectures): `.github/dependabot.yml` exists, is
+  valid YAML, has an update entry whose `package-ecosystem` is exactly `github-actions`, and no entry sets
+  `open-pull-requests-limit` to 0 (also quoted). A comment or a directory text that only mentions the ecosystem does not count.
+- `codeowners` (template): `.github/CODEOWNERS` is exactly the one line `* @<approver_login>` for the `github.approver_login` of
+  `config/project.yaml`, with or without the final newline, and nothing else: no second owner, team, path rule, comment, blank line,
+  trailing space or carriage return. A configuration without a valid approver login fails. Findings never print an account name.
+- Both are seeded from the origin with the conventions above: the comments name no record, the rule messages stay. The fixture marker
+  file that lists text a finding must not repeat is `NOECHO` (it was `SECRET` in the origin): a tracked file with that word as its name
+  made the leak scan read its hash in `state.toml` as a credential assignment.
+- Neither is on the base-run list of `pr-contract.yml` yet: a checker missing on the base commit fails the job, so the entry follows
+  in a separate PR once this one is merged. Only `dependabot-config` is meant for it (the comment of the workflow says so).
 
 ## Points for the approver
 

@@ -10,6 +10,8 @@ the `leak` test).
 import ast
 import importlib.machinery
 import re
+import shutil
+import subprocess
 import tomllib
 import types
 import unittest
@@ -244,6 +246,18 @@ class GenerationTests(TempDirTestCase):
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual((tree / ".github" / "CODEOWNERS").read_bytes(), f"* @{login}\n".encode())
                 self.assertNotIn(template_line.strip(), (tree / ".github" / "CODEOWNERS").read_text())
+
+    def test_the_gate_checks_of_the_seeded_files_pass_in_a_generated_tree(self):
+        for name in helpers.CONFIGS:
+            for check, tool in (("codeowners", None), ("dependabot-config", "yq")):
+                with self.subTest(config=name, check=check):
+                    if tool and shutil.which(tool) is None:
+                        self.skipTest(f"{tool} is not installed")
+                    tree, result = self.generate(name)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    done = subprocess.run(["bash", str(tree / "scripts" / "checks" / f"{check}.sh")], input=".github/CODEOWNERS\n.github/dependabot.yml\n",
+                                          cwd=tree, capture_output=True, text=True)
+                    self.assertEqual((done.returncode, done.stdout + done.stderr), (0, ""))
 
     def test_codeowners_is_written_when_the_copy_has_none(self):
         tree = helpers.export_template(self.make_dir() / "tree")

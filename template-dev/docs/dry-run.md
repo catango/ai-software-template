@@ -100,12 +100,12 @@ Each assumption: does the implemented template rely on it as written, with the e
 |---|---|---|---|
 | D9-1 required checks | **Partly** | `ci.yml` names the matrix jobs `quality-gate-<arch>` and the aggregate `quality-gate`; `pr-contract.yml` defines `pr-contract`; `template-ci.yml` defines `template-ci`. `test_ci.py`, `workflow-policy` rule WP-16 | The printed `main-protection` ruleset (`scripts/initialize-project`) requires `pr-contract` and `quality-gate`, not the `quality-gate-<arch>` names. The aggregate needs every matrix leg and fails on a skipped one, so each leg is covered, and a leg for an architecture without a runner exists but says `not run`; ADR-008 decision 9 names the aggregate as the required check. The design text of D9-1 says the list also covers the leg names. Which reading holds is the approver's; the required-check names were not read from the repository (reading rulesets is denied here) |
 | D9-2 Actions hardening | **Yes, with one exception** | `scripts/checks/workflow-policy.sh` and `workflow_policy.py`, seeded; fixtures in `tests/quality-gate/` | WP-13 has a narrow exception for the planned matrix of `ci.yml` (`gate.md`, point 1). The design says "the current rules"; the exception is new. `template-ci.yml` uses literal matrices only, so it needs none |
-| D9-3 security features, community files | **No** | `.template/manifest.toml` classes `.github/dependabot.yml`, `.github/CODEOWNERS`, and `SECURITY.md` as seeded; none of the three exists in the template or in a generated tree | The design says `dependabot.yml` is shipped (seeded); ADR-008 decision 1 says `SECURITY.md` and CODEOWNERS are seeded. No row built them (`gate.md`: `dependabot-config` and `codeowners` are not seeded for that reason). A generated repository therefore has no Dependabot configuration, no CODEOWNERS (the printed ruleset asks for code-owner review, which then has no owner), and no `SECURITY.md`. Open follow-up |
+| D9-3 security features, community files | **Yes, since the seeding PR** | `.github/dependabot.yml`, `.github/CODEOWNERS`, and `SECURITY.md` exist in the template and in a generated tree (CODEOWNERS written for the configured approver); the gate checks `dependabot-config` and `codeowners` pass in it (`manifest-and-config.md`, "Seeded community and security files") | At the time of this row none of the three existed. The design wording differs: D9-3 says `dependabot.yml` is the only file shipped in v1; the manifest also lists CODEOWNERS and `SECURITY.md`. The approver decides whether the design text changes |
 | D9-4 fork PRs, third-party Actions | **Yes** | `pr-contract.yml`: trigger `pull_request`, read scopes only, no secrets, the base commit's checkers judge the head (`test_workflow.py`); `workflow-policy` allows only pinned actions | None |
 | D9-5 cross-repository checkout | **Yes (withdrawn)** | No workflow checks out another repository (`generate` and the other jobs check out only this one); tools come from the checksum-verified CI manifest | `pr-contract` reads a design repository through the API for PC-3, read-only; that is not a checkout |
 | D9-6 host-reported evidence | **Yes** | PC-9, `scripts/gate-evidence`, the section "Architecture evidence" of the PR templates; `test_pc9.py`, `test_gate_evidence.py`; the `not run: <arch>` line of `ci.yml` | None. Informational, accepted by the approver per PR |
 | D9-7 printed rulesets | **Unverified** | `scripts/initialize-project` prints `main-protection` and `release-tags`; `test_manifest.py` checks the text | The JSON was never applied to a repository and could not be compared with the platform's rulesets here (reading rulesets is denied). Point 2 of `manifest-and-config.md` stands |
-| D9-8 `forbidden-api`, `operator-contract`, `owned-drift` | **Yes** | The three checks exist in `scripts/checks/` and run in the gate of every generated repository; the dry run's step 3 runs all 19 | None. `owned-drift` also has the `uses:` reading of `template-sync.md` point 1 |
+| D9-8 `forbidden-api`, `operator-contract`, `owned-drift` | **Yes** | The three checks exist in `scripts/checks/` and run in the gate of every generated repository; the dry run's step 3 runs every check of the catalogue | None. `owned-drift` also has the `uses:` reading of `template-sync.md` point 1 |
 | D10-1 budgets | **Yes, with more classes** | `.template/budgets.toml`: `CLAUDE.md` 120 lines, a rule 40, a `SKILL.md` 60, as the placeholders say; `size-budget` | The file also has classes for the imported docs, the Skill description, `docs/README.md`, and a CR `README.md` (`instructions.md`, `cr-templates.md`). The always-loaded group (20 KiB), `output-budget`, and `skill-layout` of ADR-010 are not built (open) |
 | D10-2 checkpoint format, metrics | **Yes** | `pr-checkpoint` reads and edits only the text between the ADR-003 markers (`test_pr_checkpoint.py`); every script prints one summary line (`cr_tools/common.summary`; the Bash rule) | None. No metrics script exists; ADR-010 adds one later |
 | D5-1 profile names | **Yes (closed by Q7)** | `toolchain/ci-manifest.toml` is the template's own manifest, not a host profile, with the same schema; tests in `template-dev/tests/toolchain/`; every tool has artifacts and a SHA-256 for `amd64` and `arm64` | None |
@@ -126,9 +126,8 @@ T-14 also asks for "every download in the CI manifest has amd64 and arm64 artifa
 
 ## Points for the approver
 
-1. **D9-3 is a real gap**: no `dependabot.yml`, CODEOWNERS, or `SECURITY.md` is shipped although the design and ADR-008 say so and the
-   manifest classes them. A small follow-up PR can add them (seeded files need a TC-1 reading: they are new seeded paths of a release).
-   Decide whether the first tag waits for it.
+1. **D9-3 was a real gap** (closed by the seeding PR): no `dependabot.yml`, CODEOWNERS, or `SECURITY.md` was shipped although the
+   manifest classed them.
 2. **D9-1**: whether the ruleset should list `quality-gate-<arch>` as well as the aggregate (see the table).
 3. **`dry-run.sh` takes minutes**, because step 3 runs the whole gate, including the fixture suites of `tests/quality-gate/`, in the
    generated repository. The `generate` legs have a 40-minute timeout; a local run took about three minutes.
@@ -147,8 +146,8 @@ below, and the approver should check this list against the six they have in mind
 
 1. `owned-drift` on the base-run list of `.github/workflows/pr-contract.yml`, and the explicit `GITHUB_HEAD_REF` of the base-run step
    (`template-sync.md`, "Follow-up PR"). Separate, because a workflow cannot add a checker that its own base lacks.
-2. `dependabot-config` on the same list, with the seeded `dependabot.yml`, CODEOWNERS, `SECURITY.md`, and the `codeowners` check
-   (`gate.md`, `pr-contract.md`; D9-3 above).
+2. `dependabot-config` on the same list. The seeded `dependabot.yml`, CODEOWNERS, `SECURITY.md`, and the `codeowners` check arrived with
+   the seeding PR; the list entry follows in a separate PR (`gate.md`, `pr-contract.md`).
 3. The private-repository checklist of the PR templates (CR-43 S-16; `pr-contract.md`).
 4. ADR-010 items: the always-loaded 20 KiB group, `output-budget`, `skill-layout`, the extended `size-budget`, and `scripts/metrics`
    (`instructions.md`, `skills-core.md`).
