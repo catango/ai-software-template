@@ -1089,6 +1089,13 @@ gen_cr_layout_cases() {
   sed -i '/^| 1 | /a | 2 | second | content | needs | |' "$d/fail-plan-row-without-criterion-id/$cr7/implementation-plan.md"
   mk fail-plan-row-names-an-undefined-criterion "names AC-9, which acceptance-criteria.md does not define"
   sed -i 's/| AC-1 |$/| AC-1, AC-9 |/' "$d/fail-plan-row-names-an-undefined-criterion/$cr7/implementation-plan.md"
+  # an ID whose prefix acceptance-criteria.md does not use is prose; an undefined number of a defined prefix still fails
+  mk pass-plan-cell-names-an-unrelated-id
+  sed -i 's/| AC-1 |$/| AC-1, and the rule PC-8 for the operator section |/' "$d/pass-plan-cell-names-an-unrelated-id/$cr7/implementation-plan.md"
+  mk fail-plan-cell-undefined-number-next-to-an-unrelated-id "names AC-99, which acceptance-criteria.md does not define"
+  sed -i 's/| AC-1 |$/| AC-1, PC-8, AC-99 |/' "$d/fail-plan-cell-undefined-number-next-to-an-unrelated-id/$cr7/implementation-plan.md"
+  mk fail-plan-cell-names-only-an-unrelated-id "plan row 1 names no criterion ID"
+  sed -i 's/| AC-1 |$/| the rule PC-8 |/' "$d/fail-plan-cell-names-only-an-unrelated-id/$cr7/implementation-plan.md"
   mk fail-plan-without-criteria-column "no PR table with an Acceptance criteria column"
   sed -i 's/ | Acceptance criteria |$/ | Covers |/' "$d/fail-plan-without-criteria-column/$cr7/implementation-plan.md"
   mk fail-plan-id-in-another-column "plan row 1 names no criterion ID"
